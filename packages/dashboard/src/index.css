@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Semantic colour tokens ────────────────────────────────────────────────── */
+:root {
+  /* Light mode defaults */
+  --bg:            #f8fafc;   /* slate-50  */
+  --surface:       #ffffff;
+  --surface-2:     #f1f5f9;   /* slate-100 */
+  --surface-3:     #e2e8f0;   /* slate-200 */
+  --border:        #e2e8f0;   /* slate-200 */
+  --border-2:      #cbd5e1;   /* slate-300 */
+  --text-1:        #0f172a;   /* slate-900 */
+  --text-2:        #475569;   /* slate-600 */
+  --text-3:        #94a3b8;   /* slate-400 */
+  --chart-grid:    #e2e8f0;
+  --chart-axis:    #94a3b8;
+  --tooltip-bg:    #ffffff;
+  --tooltip-border:#e2e8f0;
+  --tooltip-text:  #0f172a;
+  --input-bg:      #ffffff;
+  --input-border:  #cbd5e1;
+}
+
+.dark {
+  --bg:            #020617;   /* slate-950 */
+  --surface:       #0f172a;   /* slate-900 */
+  --surface-2:     #1e293b;   /* slate-800 */
+  --surface-3:     #334155;   /* slate-700 */
+  --border:        #1e293b;   /* slate-800 */
+  --border-2:      #334155;   /* slate-700 */
+  --text-1:        #f1f5f9;   /* slate-100 */
+  --text-2:        #94a3b8;   /* slate-400 */
+  --text-3:        #64748b;   /* slate-500 */
+  --chart-grid:    #1e293b;
+  --chart-axis:    #64748b;
+  --tooltip-bg:    #1e293b;
+  --tooltip-border:#334155;
+  --tooltip-text:  #f1f5f9;
+  --input-bg:      #1e293b;
+  --input-border:  #334155;
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────────────── */
+@layer base {
+  html { background-color: var(--bg); }
+
+  body {
+    background-color: var(--bg);
+    color: var(--text-1);
+    @apply font-sans antialiased;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-2); }
+}
+
+/* ─── Reusable component classes ────────────────────────────────────────────── */
+@layer components {
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    transition: border-color 0.15s ease;
+  }
+
+  .card-hover:hover {
+    border-color: var(--border-2);
+  }
+
+  .surface-2 {
+    background-color: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+  }
+}
+
+/* ─── Utilities ─────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent;
+  }
+
+  .t1 { color: var(--text-1); }
+  .t2 { color: var(--text-2); }
+  .t3 { color: var(--text-3); }
+  .bg-surface  { background-color: var(--surface); }
+  .bg-surface-2 { background-color: var(--surface-2); }
+  .bg-app     { background-color: var(--bg); }
+  .border-theme { border-color: var(--border); }
+}

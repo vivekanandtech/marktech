@@ -1,0 +1,35 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Temp
+tmp/
+.temp/
