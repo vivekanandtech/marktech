@@ -1,10 +1,12 @@
-import { Bell, ChevronDown, Globe, MapPin, Sun, Moon, Monitor } from 'lucide-react'
+import { Bell, ChevronDown, Globe, MapPin, Sun, Moon, Monitor, LogOut, Settings } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { useState, useRef, useEffect } from 'react'
 import { useFilterStore } from '@/store/filterStore'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore, type ThemeMode } from '@/store/themeStore'
-import { CLIENTS, getAlerts } from '@/lib/mock-data'
+import { useClientStore } from '@/store/clientStore'
+import { getAlerts } from '@/lib/mock-data'
 
 const DATE_RANGES = ['1D', '3D', '7D', '14D', '30D', '3M', '6M', '1Y'] as const
 type DateRange = typeof DATE_RANGES[number]
@@ -67,12 +69,25 @@ function ThemeToggle() {
 
 export function Header() {
   const { clientId, setClientId, dateRange, setDateRange, market, setMarket } = useFilterStore()
-  const user = useAuthStore((s) => s.user)
+  const { user, logout } = useAuthStore()
+  const navigate = useNavigate()
+  const [userOpen, setUserOpen] = useState(false)
+  const userRef = useRef<HTMLDivElement>(null)
   const alerts = getAlerts(clientId)
+
+  useEffect(() => {
+    if (!userOpen) return
+    const handler = (e: MouseEvent) => {
+      if (!userRef.current?.contains(e.target as Node)) setUserOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [userOpen])
+  const { clients } = useClientStore()
   const unreadCount = alerts.filter((a) => !a.isRead).length
   const [clientOpen, setClientOpen] = useState(false)
   const clientRef = useRef<HTMLDivElement>(null)
-  const currentClient = CLIENTS.find((c) => c.id === clientId) ?? CLIENTS[0]
+  const currentClient = clients.find((c) => c.id === clientId) ?? clients[0]
 
   // Close client dropdown when clicking outside
   useEffect(() => {
@@ -88,44 +103,63 @@ export function Header() {
     <header className="sticky top-0 z-30 flex items-center gap-3 px-5 py-2.5 bg-surface border-b border-theme backdrop-blur transition-colors">
       {/* Client switcher */}
       <div className="relative" ref={clientRef}>
-        <button
-          onClick={() => setClientOpen(!clientOpen)}
-          className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors text-sm font-medium t1 border border-theme"
-        >
-          <span
-            className="flex items-center justify-center w-6 h-6 rounded-md text-[11px] font-bold text-white shrink-0"
-            style={{ backgroundColor: currentClient.logoColor }}
+        {clients.length === 0 ? (
+          <button
+            onClick={() => { navigate('/settings'); }}
+            className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors text-sm font-medium t3 border border-dashed border-theme"
           >
-            {currentClient.logoInitials}
-          </span>
-          <span className="max-w-[110px] truncate">{currentClient.name}</span>
-          <ChevronDown size={13} className={clsx('t3 shrink-0 transition-transform', clientOpen && 'rotate-180')} />
-        </button>
-
-        {clientOpen && (
-          <div className="absolute left-0 top-full mt-1.5 w-56 bg-surface border border-theme rounded-xl shadow-2xl py-1 z-50">
-            {CLIENTS.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => { setClientId(c.id); setClientOpen(false) }}
-                className={clsx(
-                  'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left',
-                  c.id === clientId ? 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-400' : 't2 hover:t1 hover:bg-surface-2'
-                )}
+            + Add client
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => setClientOpen(!clientOpen)}
+              className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors text-sm font-medium t1 border border-theme"
+            >
+              <span
+                className="flex items-center justify-center w-6 h-6 rounded-md text-[11px] font-bold text-white shrink-0"
+                style={{ backgroundColor: currentClient?.logoColor ?? '#6366f1' }}
               >
-                <span
-                  className="flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold text-white shrink-0"
-                  style={{ backgroundColor: c.logoColor }}
-                >
-                  {c.logoInitials}
-                </span>
-                <div>
-                  <p className="font-medium leading-tight">{c.name}</p>
-                  <p className="text-xs t3">{c.industry}</p>
+                {currentClient?.logoInitials ?? '?'}
+              </span>
+              <span className="max-w-[110px] truncate">{currentClient?.name ?? 'Select client'}</span>
+              <ChevronDown size={13} className={clsx('t3 shrink-0 transition-transform', clientOpen && 'rotate-180')} />
+            </button>
+
+            {clientOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-64 bg-surface border border-theme rounded-xl shadow-2xl py-1 z-50">
+                {clients.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => { setClientId(c.id); setClientOpen(false) }}
+                    className={clsx(
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left',
+                      c.id === clientId ? 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-400' : 't2 hover:t1 hover:bg-surface-2'
+                    )}
+                  >
+                    <span
+                      className="flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold text-white shrink-0"
+                      style={{ backgroundColor: c.logoColor }}
+                    >
+                      {c.logoInitials}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-medium leading-tight truncate">{c.name}</p>
+                      <p className="text-xs t3 truncate">{c.industry}</p>
+                    </div>
+                  </button>
+                ))}
+                <div className="border-t border-theme mt-1 pt-1">
+                  <button
+                    onClick={() => { setClientOpen(false); navigate('/settings') }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs t3 hover:t1 hover:bg-surface-2 transition-colors"
+                  >
+                    + Manage clients
+                  </button>
                 </div>
-              </button>
-            ))}
-          </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -178,14 +212,41 @@ export function Header() {
           {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />}
         </button>
 
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-xs font-bold text-white">
-            {user?.name?.charAt(0) ?? 'A'}
-          </div>
-          <div className="hidden sm:block">
-            <p className="text-xs font-medium t1 leading-tight">{user?.name ?? 'Admin'}</p>
-            <p className="text-[10px] t3 capitalize">{(user?.role ?? 'agency_admin').replace('_', ' ')}</p>
-          </div>
+        <div className="relative" ref={userRef}>
+          <button
+            onClick={() => setUserOpen(!userOpen)}
+            className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface-2 transition-colors"
+          >
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-xs font-bold text-white">
+              {user?.name?.charAt(0) ?? 'A'}
+            </div>
+            <div className="hidden sm:block text-left">
+              <p className="text-xs font-medium t1 leading-tight">{user?.name ?? 'Admin'}</p>
+              <p className="text-[10px] t3 capitalize">{(user?.role ?? 'agency_admin').replace('_', ' ')}</p>
+            </div>
+            <ChevronDown size={12} className={clsx('t3 transition-transform hidden sm:block', userOpen && 'rotate-180')} />
+          </button>
+
+          {userOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-44 bg-surface border border-theme rounded-xl shadow-2xl py-1 z-50">
+              <div className="px-3 py-2 border-b border-theme mb-1">
+                <p className="text-xs font-semibold t1 truncate">{user?.name}</p>
+                <p className="text-[10px] t3 truncate">{user?.email}</p>
+              </div>
+              <button
+                onClick={() => { setUserOpen(false); navigate('/settings') }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs t2 hover:t1 hover:bg-surface-2 transition-colors"
+              >
+                <Settings size={13} /> Settings
+              </button>
+              <button
+                onClick={() => { logout(); navigate('/login') }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-500 hover:bg-red-500/10 transition-colors"
+              >
+                <LogOut size={13} /> Sign out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

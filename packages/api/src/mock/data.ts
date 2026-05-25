@@ -252,8 +252,3 @@ export function getMockAlerts(clientId: string) {
     { id: 'al5', clientId, platform: 'meta', type: 'learning_phase', severity: 'info', campaignId: 'cp1', campaignName: 'Advantage+ Shopping — India', title: 'Learning Phase Complete', message: 'Advantage+ campaign has exited the learning phase after 7 days and 52 optimization events. Performance is now stable. Avoid budget or audience changes for the next 3 days to maintain momentum.', createdAt: hoursAgo(12), isRead: true, actionRequired: false },
   ]
 }
-
-function seededRandom(seed: number) {
-  const x = Math.sin(seed) * 10000
-  return x - Math.floor(x)
-}

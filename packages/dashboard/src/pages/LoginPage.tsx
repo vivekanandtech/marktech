@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Zap, Eye, EyeOff } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
+import { API } from '@/lib/api'
 
 export function LoginPage() {
   const { isAuthenticated, login } = useAuthStore()
@@ -17,12 +18,20 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 600))
-
-    if (email === 'admin@velora.com' && password === 'demo1234') {
-      login({ id: 'user_1', name: 'Arjun Sharma', email, role: 'agency_admin' })
-    } else {
-      setError('Invalid credentials. Try admin@velora.com / demo1234')
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error ?? 'Invalid credentials')
+      } else {
+        login(data.user, data.token)
+      }
+    } catch {
+      setError('Cannot reach server. Is the API running?')
     }
     setLoading(false)
   }
