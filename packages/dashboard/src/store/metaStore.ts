@@ -13,7 +13,8 @@ interface MetaState {
   adAccounts: AdAccount[]
   selectedAdAccountId: string | null
   expiresAt: string | null
-  setConnected: (data: { metaUserId: string; adAccounts: AdAccount[]; expiresAt: string }) => void
+  accessToken: string | null
+  setConnected: (data: { metaUserId: string; adAccounts: AdAccount[]; expiresAt: string; accessToken?: string }) => void
   setDisconnected: () => void
   selectAdAccount: (id: string) => void
 }
@@ -26,16 +27,18 @@ export const useMetaStore = create<MetaState>()(
       adAccounts: [],
       selectedAdAccountId: null,
       expiresAt: null,
-      setConnected: ({ metaUserId, adAccounts, expiresAt }) =>
-        set({
+      accessToken: null,
+      setConnected: ({ metaUserId, adAccounts, expiresAt, accessToken }) =>
+        set((s) => ({
           connected: true,
           metaUserId,
           adAccounts,
           expiresAt,
+          accessToken: accessToken ?? s.accessToken,
           selectedAdAccountId: adAccounts[0]?.id ?? null,
-        }),
+        })),
       setDisconnected: () =>
-        set({ connected: false, metaUserId: null, adAccounts: [], selectedAdAccountId: null, expiresAt: null }),
+        set({ connected: false, metaUserId: null, adAccounts: [], selectedAdAccountId: null, expiresAt: null, accessToken: null }),
       selectAdAccount: (id) => set({ selectedAdAccountId: id }),
     }),
     { name: 'marktech-meta' }

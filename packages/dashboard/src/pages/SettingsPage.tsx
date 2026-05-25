@@ -252,9 +252,29 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (oauthResult === 'connected') {
-      // Re-sync the active client's status so MetaAdsPage shows live data immediately
       const { clientId } = useFilterStore.getState()
-      syncMetaStatus(clientId)
+      const { setConnected } = useMetaStore.getState()
+
+      // Pull token + account data from redirect URL and persist to localStorage
+      const at = searchParams.get('at')
+      const uid = searchParams.get('uid')
+      const accRaw = searchParams.get('acc')
+      const exp = searchParams.get('exp')
+
+      if (at && uid && accRaw) {
+        try {
+          const adAccounts = JSON.parse(decodeURIComponent(accRaw))
+          setConnected({
+            accessToken: at,
+            metaUserId: uid,
+            adAccounts,
+            expiresAt: exp ?? new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString(),
+          })
+        } catch { /* ignore parse errors */ }
+      } else {
+        syncMetaStatus(clientId)
+      }
+
       const t = setTimeout(() => setSearchParams({}, { replace: true }), 5000)
       return () => clearTimeout(t)
     }

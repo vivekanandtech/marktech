@@ -11,6 +11,7 @@ import { SettingsPage } from '@/pages/SettingsPage'
 import { useAuthStore } from '@/store/authStore'
 import { useMetaStore } from '@/store/metaStore'
 import { useFilterStore } from '@/store/filterStore'
+import { useClientStore } from '@/store/clientStore'
 import { initTheme } from '@/store/themeStore'
 
 const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001'
@@ -35,10 +36,25 @@ export function syncMetaStatus(clientId: string) {
 }
 
 function MetaSyncProvider() {
-  const { clientId } = useFilterStore()
+  const { clientId, setClientId } = useFilterStore()
+  const { clients } = useClientStore()
+  const { accessToken, setConnected } = useMetaStore()
 
+  // Auto-select first client if none selected or stored id no longer exists
   useEffect(() => {
-    syncMetaStatus(clientId)
+    if (clients.length === 0) return
+    const valid = clients.find((c) => c.id === clientId)
+    if (!valid) setClientId(clients[0].id)
+  }, [clients, clientId, setClientId])
+
+  // If we have a persisted accessToken, mark as connected without hitting server
+  useEffect(() => {
+    if (accessToken) {
+      // Verify it's still valid by checking status
+      syncMetaStatus(clientId)
+    } else if (clientId) {
+      syncMetaStatus(clientId)
+    }
   }, [clientId])
 
   return null

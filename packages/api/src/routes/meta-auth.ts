@@ -49,8 +49,13 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
         app.log.info({ clientId, metaUserId, accounts: adAccounts.length }, 'Meta token stored')
 
+        // Pass token to frontend so it survives server restarts (stored in browser localStorage)
         const accountNames = adAccounts.map((a: any) => encodeURIComponent(a.name)).join(',')
-        return reply.redirect(`${FRONTEND}/settings?meta=connected&accounts=${accountNames}`)
+        const accountData = encodeURIComponent(JSON.stringify(adAccounts.map((a: any) => ({ id: a.id, name: a.name, currency: a.currency }))))
+        const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
+        return reply.redirect(
+          `${FRONTEND}/settings?meta=connected&accounts=${accountNames}&at=${encodeURIComponent(longToken)}&uid=${metaUserId}&acc=${accountData}&exp=${encodeURIComponent(expiresAt)}`
+        )
       } catch (err: any) {
         app.log.error(err, 'Meta OAuth callback failed')
         return reply.redirect(`${FRONTEND}/settings?meta=error&reason=${encodeURIComponent(err.message)}`)
@@ -87,79 +92,66 @@ export async function metaAuthRoutes(app: FastifyInstance) {
   })
 }
 
-// ─── Meta data routes (protected, returns real data) ─────────────────────────
+// ─── Meta data routes (stateless — token passed from client) ─────────────────
+
+function resolveToken(clientId: string, headerToken?: string): string | null {
+  // 1. Token passed directly from client (preferred — survives server restarts)
+  if (headerToken) return headerToken
+  // 2. Fall back to server-side store if available
+  return tokenStore.get(clientId)?.accessToken ?? null
+}
 
 export async function metaDataRoutes(app: FastifyInstance) {
 
-  // GET /api/meta/insights?clientId=xxx&adAccountId=act_xxx&datePreset=last_30d
   app.get<{
     Querystring: { clientId?: string; adAccountId: string; datePreset?: string; level?: string }
   }>('/insights', async (request, reply) => {
     const { clientId = 'default', adAccountId, datePreset = 'last_30d', level = 'campaign' } = request.query
-    const stored = tokenStore.get(clientId)
-    if (!stored) return reply.code(401).send({ error: 'Meta not connected. Visit /settings to connect.' })
-
-    const insights = await getCampaignInsights(adAccountId, stored.accessToken, datePreset, level)
+    const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
+    if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+    const insights = await getCampaignInsights(adAccountId, token, datePreset, level)
     return { data: insights, source: 'meta_api' }
   })
 
-  // GET /api/meta/campaigns?clientId=xxx&adAccountId=act_xxx
   app.get<{ Querystring: { clientId?: string; adAccountId: string } }>(
     '/campaigns',
     async (request, reply) => {
       const { clientId = 'default', adAccountId } = request.query
-      const stored = tokenStore.get(clientId)
-      if (!stored) return reply.code(401).send({ error: 'Meta not connected.' })
+      const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
+      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
       const [campaigns, insights] = await Promise.all([
-        getCampaigns(adAccountId, stored.accessToken),
-        getCampaignInsights(adAccountId, stored.accessToken, 'last_30d', 'campaign'),
+        getCampaigns(adAccountId, token),
+        getCampaignInsights(adAccountId, token, 'last_30d', 'campaign'),
       ])
-
-      // Merge insights into campaigns
       const insightMap = new Map(insights.map((i: any) => [i.campaign_id, i]))
-      const merged = campaigns.map((c: any) => ({
-        ...c,
-        insights: insightMap.get(c.id) ?? null,
-      }))
-
-      return { data: merged, source: 'meta_api' }
+      return { data: campaigns.map((c: any) => ({ ...c, insights: insightMap.get(c.id) ?? null })), source: 'meta_api' }
     }
   )
 
-  // GET /api/meta/adsets?clientId=xxx&adAccountId=act_xxx&campaignId=xxx
   app.get<{ Querystring: { clientId?: string; adAccountId: string; campaignId?: string } }>(
     '/adsets',
     async (request, reply) => {
       const { clientId = 'default', adAccountId, campaignId } = request.query
-      const stored = tokenStore.get(clientId)
-      if (!stored) return reply.code(401).send({ error: 'Meta not connected.' })
+      const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
+      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
       const [adsets, insights] = await Promise.all([
-        getAdSets(adAccountId, stored.accessToken, campaignId),
-        getCampaignInsights(adAccountId, stored.accessToken, 'last_30d', 'adset'),
+        getAdSets(adAccountId, token, campaignId),
+        getCampaignInsights(adAccountId, token, 'last_30d', 'adset'),
       ])
-
       const insightMap = new Map(insights.map((i: any) => [i.adset_id, i]))
-      const merged = adsets.map((a: any) => ({
-        ...a,
-        insights: insightMap.get(a.id) ?? null,
-      }))
-
-      return { data: merged, source: 'meta_api' }
+      return { data: adsets.map((a: any) => ({ ...a, insights: insightMap.get(a.id) ?? null })), source: 'meta_api' }
     }
   )
 
-  // GET /api/meta/ads?clientId=xxx&adAccountId=act_xxx
   app.get<{ Querystring: { clientId?: string; adAccountId: string } }>(
     '/ads',
     async (request, reply) => {
       const { clientId = 'default', adAccountId } = request.query
-      const stored = tokenStore.get(clientId)
-      if (!stored) return reply.code(401).send({ error: 'Meta not connected.' })
-
-      const ads = await getAds(adAccountId, stored.accessToken)
-      return { data: ads, source: 'meta_api' }
+      const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
+      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      return { data: await getAds(adAccountId, token), source: 'meta_api' }
     }
   )
 }

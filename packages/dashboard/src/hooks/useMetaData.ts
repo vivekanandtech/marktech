@@ -1,7 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useFilterStore } from '@/store/filterStore'
 import { useMetaStore } from '@/store/metaStore'
-import { apiFetch } from '@/lib/api'
+import { API } from '@/lib/api'
+import { useAuthStore } from '@/store/authStore'
+
+function metaFetch(path: string, metaToken: string | null) {
+  const jwt = useAuthStore.getState().token
+  return fetch(`${API}${path}`, {
+    headers: {
+      ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+      ...(metaToken ? { 'x-meta-token': metaToken } : {}),
+    },
+  })
+}
 
 export interface MetaCampaign {
   id: string
@@ -25,7 +36,7 @@ export interface MetaCampaign {
 
 export function useMetaCampaigns() {
   const { clientId } = useFilterStore()
-  const { connected, selectedAdAccountId, setDisconnected } = useMetaStore()
+  const { connected, selectedAdAccountId, setDisconnected, accessToken } = useMetaStore()
   const [data, setData] = useState<MetaCampaign[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,7 +45,7 @@ export function useMetaCampaigns() {
     if (!connected || !selectedAdAccountId) return
     setLoading(true)
     setError(null)
-    apiFetch(`/api/meta/campaigns?clientId=${clientId}&adAccountId=${selectedAdAccountId}`)
+    metaFetch(`/api/meta/campaigns?clientId=${clientId}&adAccountId=${selectedAdAccountId}`, accessToken)
       .then(async (r) => {
         if (r.status === 401) { setDisconnected(); return }
         const json = await r.json()
@@ -43,14 +54,14 @@ export function useMetaCampaigns() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [clientId, connected, selectedAdAccountId])
+  }, [clientId, connected, selectedAdAccountId, accessToken])
 
   return { data, loading, error }
 }
 
 export function useMetaInsights(datePreset = 'last_30d') {
   const { clientId } = useFilterStore()
-  const { connected, selectedAdAccountId } = useMetaStore()
+  const { connected, selectedAdAccountId, accessToken } = useMetaStore()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -59,14 +70,14 @@ export function useMetaInsights(datePreset = 'last_30d') {
     if (!connected || !selectedAdAccountId) return
     setLoading(true)
     setError(null)
-    apiFetch(`/api/meta/insights?clientId=${clientId}&adAccountId=${selectedAdAccountId}&datePreset=${datePreset}&level=campaign`)
+    metaFetch(`/api/meta/insights?clientId=${clientId}&adAccountId=${selectedAdAccountId}&datePreset=${datePreset}&level=campaign`, accessToken)
       .then(async (r) => {
         const json = await r.json()
         setData(json.data ?? [])
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [clientId, connected, selectedAdAccountId, datePreset])
+  }, [clientId, connected, selectedAdAccountId, datePreset, accessToken])
 
   return { data, loading, error }
 }
