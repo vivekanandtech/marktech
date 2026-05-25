@@ -20,21 +20,25 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
 }
 
+export function syncMetaStatus(clientId: string) {
+  const { setConnected, setDisconnected } = useMetaStore.getState()
+  return fetch(`${API}/auth/meta/status?clientId=${clientId}`)
+    .then((r) => r.json())
+    .then((data) => {
+      if (data.connected) {
+        setConnected({ metaUserId: data.metaUserId, adAccounts: data.adAccounts, expiresAt: data.expiresAt })
+      } else {
+        setDisconnected()
+      }
+    })
+    .catch(() => setDisconnected())
+}
+
 function MetaSyncProvider() {
   const { clientId } = useFilterStore()
-  const { setConnected, setDisconnected } = useMetaStore()
 
   useEffect(() => {
-    fetch(`${API}/auth/meta/status?clientId=${clientId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.connected) {
-          setConnected({ metaUserId: data.metaUserId, adAccounts: data.adAccounts, expiresAt: data.expiresAt })
-        } else {
-          setDisconnected()
-        }
-      })
-      .catch(() => setDisconnected())
+    syncMetaStatus(clientId)
   }, [clientId])
 
   return null

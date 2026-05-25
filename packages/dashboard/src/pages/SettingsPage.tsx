@@ -7,6 +7,7 @@ import {
 import { useClientStore, type Client } from '@/store/clientStore'
 import { useFilterStore } from '@/store/filterStore'
 import { useMetaStore } from '@/store/metaStore'
+import { syncMetaStatus } from '@/App'
 
 const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001'
 
@@ -19,6 +20,7 @@ const META_LOGO = (
 // ─── Per-client Meta connection row ──────────────────────────────────────────
 function MetaConnectionRow({ clientId }: { clientId: string }) {
   const { setDisconnected } = useMetaStore()
+  const { clientId: activeClientId } = useFilterStore()
   const [status, setStatus] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [disconnecting, setDisconnecting] = useState(false)
@@ -27,11 +29,16 @@ function MetaConnectionRow({ clientId }: { clientId: string }) {
     setLoading(true)
     try {
       const res = await fetch(`${API}/auth/meta/status?clientId=${clientId}`)
-      setStatus(await res.json())
+      const data = await res.json()
+      setStatus(data)
+      // Keep global metaStore in sync for the currently selected client
+      if (clientId === activeClientId) {
+        await syncMetaStatus(clientId)
+      }
     } finally {
       setLoading(false)
     }
-  }, [clientId])
+  }, [clientId, activeClientId])
 
   useEffect(() => { fetchStatus() }, [fetchStatus])
 
@@ -40,7 +47,7 @@ function MetaConnectionRow({ clientId }: { clientId: string }) {
     try {
       await fetch(`${API}/auth/meta/disconnect?clientId=${clientId}`, { method: 'DELETE' })
       setStatus({ connected: false })
-      setDisconnected()
+      if (clientId === activeClientId) setDisconnected()
     } finally {
       setDisconnecting(false)
     }
@@ -244,7 +251,14 @@ export function SettingsPage() {
   const oauthAccounts = searchParams.get('accounts')
 
   useEffect(() => {
-    if (oauthResult) {
+    if (oauthResult === 'connected') {
+      // Re-sync the active client's status so MetaAdsPage shows live data immediately
+      const { clientId } = useFilterStore.getState()
+      syncMetaStatus(clientId)
+      const t = setTimeout(() => setSearchParams({}, { replace: true }), 5000)
+      return () => clearTimeout(t)
+    }
+    if (oauthResult === 'error') {
       const t = setTimeout(() => setSearchParams({}, { replace: true }), 5000)
       return () => clearTimeout(t)
     }
