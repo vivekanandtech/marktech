@@ -21,7 +21,7 @@ export function getOAuthUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: APP_ID,
     redirect_uri: REDIRECT_URI,
-    scope: 'ads_read,business_management',
+    scope: 'ads_read',
     response_type: 'code',
     state,
   })
