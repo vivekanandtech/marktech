@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '@/components/ui/MetricCard'
 import { CampaignTable } from '@/components/campaigns/CampaignTable'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useFilterStore } from '@/store/filterStore'
 import { useMetaStore } from '@/store/metaStore'
 import { useMetaCampaigns } from '@/hooks/useMetaData'
@@ -19,54 +20,60 @@ const CAMPAIGN_FILTERS: { value: CampaignFilter; label: string }[] = [
   { value: 'archived', label: 'Archived' },
 ]
 
+const PAGE_SIZE = 20
+
 // ─── Transform Meta API campaign → CampaignTable shape ───────────────────────
 function transformMetaCampaign(c: any) {
-  const ins = c.insights ?? {}
-  const spend = parseFloat(ins.spend ?? '0')
-  const impressions = parseInt(ins.impressions ?? '0', 10)
-  const clicks = parseInt(ins.clicks ?? '0', 10)
-  const reach = parseInt(ins.reach ?? '0', 10)
-  const roasArr = ins.purchase_roas ?? []
-  const roas = roasArr.length ? parseFloat(roasArr[0].value) : 0
-  const ctr = parseFloat(ins.ctr ?? '0')
-  const cpm = parseFloat(ins.cpm ?? '0')
-  const cpa = clicks > 0 ? spend / clicks : 0
+  try {
+    const ins = c?.insights ?? {}
+    const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
+    const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
+    const spend       = safeFloat(ins.spend)
+    const impressions = safeInt(ins.impressions)
+    const clicks      = safeInt(ins.clicks)
+    const reach       = safeInt(ins.reach)
+    const roasArr     = Array.isArray(ins.purchase_roas) ? ins.purchase_roas : []
+    const roas        = roasArr.length ? safeFloat(roasArr[0]?.value) : 0
+    const ctr         = safeFloat(ins.ctr)
+    const cpm         = safeFloat(ins.cpm)
+    const cpa         = clicks > 0 ? spend / clicks : 0
 
-  return {
-    id: c.id,
-    name: c.name,
-    platform: 'meta' as const,
-    status: c.effective_status?.toLowerCase() ?? c.status?.toLowerCase() ?? 'unknown',
-    type: 'prospecting' as const,
-    spend,
-    roas,
-    ctr,
-    cpa,
-    cpm,
-    reach,
-    impressions,
-    clicks,
-    trend: 0,
-    adSets: [],
+    return {
+      id: c.id ?? Math.random().toString(),
+      name: c.name ?? 'Unnamed campaign',
+      platform: 'meta' as const,
+      status: (c.effective_status ?? c.status ?? 'unknown').toLowerCase(),
+      type: 'prospecting' as const,
+      spend, roas, ctr, cpa, cpm, reach, impressions, clicks,
+      trend: 0,
+      adSets: [],
+    }
+  } catch {
+    return null
   }
 }
 
 // ─── Connected view ───────────────────────────────────────────────────────────
 function ConnectedView() {
-  const { clientId, market } = useFilterStore()
+  const { clientId } = useFilterStore()
   const { adAccounts, selectedAdAccountId, selectAdAccount } = useMetaStore()
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
+  const [page, setPage] = useState(0)
   const { data: rawCampaigns, loading, error } = useMetaCampaigns()
 
-  const campaigns = rawCampaigns
+  const allCampaigns = rawCampaigns
     .map(transformMetaCampaign)
-    .filter((c) => typeFilter === 'all' || c.status === typeFilter)
+    .filter((c): c is NonNullable<ReturnType<typeof transformMetaCampaign>> => c !== null)
 
-  const totalSpend = campaigns.reduce((s, c) => s + c.spend, 0)
-  const totalReach = campaigns.reduce((s, c) => s + c.reach, 0)
-  const avgRoas = campaigns.length ? campaigns.reduce((s, c) => s + c.roas, 0) / campaigns.length : 0
-  const avgCtr = campaigns.length ? campaigns.reduce((s, c) => s + c.ctr, 0) / campaigns.length : 0
-  const avgCpa = campaigns.length ? campaigns.reduce((s, c) => s + c.cpa, 0) / campaigns.length : 0
+  const filtered = allCampaigns.filter((c) => typeFilter === 'all' || c.status === typeFilter)
+  const paginated = filtered.slice(0, (page + 1) * PAGE_SIZE)
+  const hasMore = paginated.length < filtered.length
+
+  const totalSpend = allCampaigns.reduce((s, c) => s + c.spend, 0)
+  const totalReach = allCampaigns.reduce((s, c) => s + c.reach, 0)
+  const avgRoas = allCampaigns.length ? allCampaigns.reduce((s, c) => s + c.roas, 0) / allCampaigns.length : 0
+  const avgCtr  = allCampaigns.length ? allCampaigns.reduce((s, c) => s + c.ctr,  0) / allCampaigns.length : 0
+  const avgCpa  = allCampaigns.length ? allCampaigns.reduce((s, c) => s + c.cpa,  0) / allCampaigns.length : 0
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -127,8 +134,8 @@ function ConnectedView() {
           <div className="card p-4">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
               <div>
-                <h3 className="text-sm font-semibold t1">Campaigns <span className="text-xs font-normal t3 ml-1">({rawCampaigns.length} total)</span></h3>
-                <p className="text-xs t3 mt-0.5">Live · Click any row to expand Ad Sets → Ads</p>
+                <h3 className="text-sm font-semibold t1">Campaigns <span className="text-xs font-normal t3 ml-1">({filtered.length} total)</span></h3>
+                <p className="text-xs t3 mt-0.5">Live · Showing {paginated.length} of {filtered.length}</p>
               </div>
               <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
                 {CAMPAIGN_FILTERS.map((f) => (
@@ -145,7 +152,17 @@ function ConnectedView() {
                 ))}
               </div>
             </div>
-            <CampaignTable campaigns={campaigns} emptyMessage="No campaigns match this filter" />
+            <ErrorBoundary label="Error rendering campaigns">
+              <CampaignTable campaigns={paginated} emptyMessage="No campaigns match this filter" />
+            </ErrorBoundary>
+            {hasMore && (
+              <button
+                onClick={() => setPage((p) => p + 1)}
+                className="mt-4 w-full text-xs font-medium t2 hover:t1 border border-dashed border-theme rounded-lg py-2.5 transition-colors"
+              >
+                Load more ({filtered.length - paginated.length} remaining)
+              </button>
+            )}
           </div>
         </>
       )}
@@ -235,5 +252,9 @@ function MockView() {
 // ─── Page entry point ─────────────────────────────────────────────────────────
 export function MetaAdsPage() {
   const { connected } = useMetaStore()
-  return connected ? <ConnectedView /> : <MockView />
+  return (
+    <ErrorBoundary label="Meta Ads page encountered an error">
+      {connected ? <ConnectedView /> : <MockView />}
+    </ErrorBoundary>
+  )
 }
