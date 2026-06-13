@@ -95,6 +95,7 @@ export async function getCampaignInsights(
   const fields = [
     'campaign_id', 'campaign_name',
     'adset_id', 'adset_name',
+    'ad_id', 'ad_name',
     'spend', 'impressions', 'clicks', 'reach', 'frequency',
     'purchase_roas', 'cost_per_action_type',
     'cpm', 'ctr', 'cpp', 'actions',
@@ -123,7 +124,7 @@ export async function getAdSets(adAccountId: string, token: string, campaignId?:
 }
 
 export async function getAds(adAccountId: string, token: string) {
-  const fields = 'id,name,status,adset_id,campaign_id,creative{id,title,body,thumbnail_url,image_url}'
+  const fields = 'id,name,status,adset_id,campaign_id,effective_status,creative{id,title,body,thumbnail_url,image_url,video_id,object_type}'
   const res = await fetch(`${GRAPH}/${adAccountId}/ads?fields=${fields}&access_token=${token}`)
   const data = await res.json() as any
   if (data.error) throw new Error(data.error.message)

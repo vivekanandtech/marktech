@@ -24,13 +24,19 @@ export function AdRow({ ad }: { ad: Ad }) {
       {/* Ad level — deeper indent, double-level left border */}
       <td className="py-2 pr-3">
         <div className="flex items-center ml-8 pl-4 border-l-2 border-violet-500/20">
-          <div className="relative w-7 h-9 rounded overflow-hidden shrink-0 bg-surface-3 mr-2.5">
-            <img src={ad.thumbnailUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-            <div className="absolute inset-0 flex items-end justify-start p-0.5">
-              <span className="bg-black/70 rounded-sm p-0.5 text-white">
-                {FORMAT_ICONS[ad.format] ?? <Image size={9} />}
-              </span>
-            </div>
+          <div className="relative w-7 h-9 rounded overflow-hidden shrink-0 bg-surface-3 mr-2.5 flex items-center justify-center">
+            {ad.thumbnailUrl ? (
+              <>
+                <img src={ad.thumbnailUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                <div className="absolute inset-0 flex items-end justify-start p-0.5">
+                  <span className="bg-black/70 rounded-sm p-0.5 text-white">
+                    {FORMAT_ICONS[ad.format] ?? <Image size={9} />}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <span className="t3">{FORMAT_ICONS[ad.format] ?? <Image size={9} />}</span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">

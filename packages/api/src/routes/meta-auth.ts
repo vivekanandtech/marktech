@@ -130,12 +130,41 @@ export async function metaDataRoutes(app: FastifyInstance) {
       const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
-      const [campaigns, insights] = await Promise.all([
+      const [campaigns, campaignInsights, adsets, adsetInsights, ads, adInsights] = await Promise.all([
         getCampaigns(adAccountId, token),
         getCampaignInsights(adAccountId, token, 'last_30d', 'campaign'),
+        getAdSets(adAccountId, token),
+        getCampaignInsights(adAccountId, token, 'last_30d', 'adset'),
+        getAds(adAccountId, token),
+        getCampaignInsights(adAccountId, token, 'last_30d', 'ad'),
       ])
-      const insightMap = new Map(insights.map((i: any) => [i.campaign_id, i]))
-      return { data: campaigns.map((c: any) => ({ ...c, insights: insightMap.get(c.id) ?? null })), source: 'meta_api' }
+
+      const campaignInsightMap = new Map(campaignInsights.map((i: any) => [i.campaign_id, i]))
+      const adsetInsightMap = new Map(adsetInsights.map((i: any) => [i.adset_id, i]))
+      const adInsightMap = new Map(adInsights.map((i: any) => [i.ad_id, i]))
+
+      const adsByAdset = new Map<string, any[]>()
+      for (const ad of ads) {
+        const list = adsByAdset.get(ad.adset_id) ?? []
+        list.push({ ...ad, insights: adInsightMap.get(ad.id) ?? null })
+        adsByAdset.set(ad.adset_id, list)
+      }
+
+      const adsetsByCampaign = new Map<string, any[]>()
+      for (const adset of adsets) {
+        const list = adsetsByCampaign.get(adset.campaign_id) ?? []
+        list.push({ ...adset, insights: adsetInsightMap.get(adset.id) ?? null, ads: adsByAdset.get(adset.id) ?? [] })
+        adsetsByCampaign.set(adset.campaign_id, list)
+      }
+
+      return {
+        data: campaigns.map((c: any) => ({
+          ...c,
+          insights: campaignInsightMap.get(c.id) ?? null,
+          adsets: adsetsByCampaign.get(c.id) ?? [],
+        })),
+        source: 'meta_api',
+      }
     }
   )
 

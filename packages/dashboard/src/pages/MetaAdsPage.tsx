@@ -22,23 +22,93 @@ const CAMPAIGN_FILTERS: { value: CampaignFilter; label: string }[] = [
 
 const PAGE_SIZE = 20
 
-// ─── Transform Meta API campaign → CampaignTable shape ───────────────────────
+// ─── Transform Meta API data → CampaignTable / AdSetRow / AdRow shapes ───────
+const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
+const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
+
+const PURCHASE_ACTION_TYPES = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']
+
+function getConversions(ins: any): number {
+  const actions = Array.isArray(ins?.actions) ? ins.actions : []
+  return actions
+    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
+    .reduce((sum: number, a: any) => sum + safeInt(a.value), 0)
+}
+
+function transformInsightMetrics(ins: any) {
+  const spend       = safeFloat(ins?.spend)
+  const impressions = safeInt(ins?.impressions)
+  const clicks      = safeInt(ins?.clicks)
+  const reach       = safeInt(ins?.reach)
+  const frequency   = safeFloat(ins?.frequency)
+  const roasArr     = Array.isArray(ins?.purchase_roas) ? ins.purchase_roas : []
+  const roas        = roasArr.length ? safeFloat(roasArr[0]?.value) : 0
+  const ctr         = safeFloat(ins?.ctr)
+  const cpm         = safeFloat(ins?.cpm)
+  const cpa         = clicks > 0 ? spend / clicks : 0
+  const conversions = getConversions(ins)
+  return { spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc: cpa, conversions }
+}
+
+// Best-effort human-readable summary of an ad set's targeting
+function summarizeTargeting(targeting: any): string {
+  if (!targeting) return ''
+  const parts: string[] = []
+  const countries = targeting.geo_locations?.countries
+  if (Array.isArray(countries) && countries.length) parts.push(countries.join(', '))
+  if (targeting.age_min || targeting.age_max) parts.push(`Age ${targeting.age_min ?? 13}-${targeting.age_max ?? 65}`)
+  const genderMap: Record<number, string> = { 1: 'Men', 2: 'Women' }
+  if (Array.isArray(targeting.genders) && targeting.genders.length === 1) {
+    const g = genderMap[targeting.genders[0]]
+    if (g) parts.push(g)
+  }
+  return parts.join(' · ')
+}
+
+function transformMetaAd(a: any) {
+  try {
+    const creative = a.creative ?? {}
+    const format = creative.video_id ? 'video' : creative.object_type === 'SHARE' ? 'carousel' : 'image'
+    return {
+      id: a.id ?? Math.random().toString(),
+      name: a.name ?? 'Unnamed ad',
+      format,
+      status: (a.effective_status ?? a.status ?? 'unknown').toLowerCase(),
+      thumbnailUrl: creative.thumbnail_url ?? creative.image_url ?? '',
+      ...transformInsightMetrics(a.insights),
+      trend: 0,
+    }
+  } catch {
+    return null
+  }
+}
+
+function transformMetaAdSet(as: any) {
+  try {
+    const ads = (Array.isArray(as.ads) ? as.ads : [])
+      .map(transformMetaAd)
+      .filter((a: any): a is NonNullable<ReturnType<typeof transformMetaAd>> => a !== null)
+    return {
+      id: as.id ?? Math.random().toString(),
+      name: as.name ?? 'Unnamed ad set',
+      audience: summarizeTargeting(as.targeting),
+      status: (as.effective_status ?? as.status ?? 'unknown').toLowerCase(),
+      ...transformInsightMetrics(as.insights),
+      trend: 0,
+      ads,
+    }
+  } catch {
+    return null
+  }
+}
+
 function transformMetaCampaign(c: any) {
   try {
-    const ins = c?.insights ?? {}
-    const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
-    const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
-    const spend       = safeFloat(ins.spend)
-    const impressions = safeInt(ins.impressions)
-    const clicks      = safeInt(ins.clicks)
-    const reach       = safeInt(ins.reach)
-    const roasArr     = Array.isArray(ins.purchase_roas) ? ins.purchase_roas : []
-    const roas        = roasArr.length ? safeFloat(roasArr[0]?.value) : 0
-    const ctr         = safeFloat(ins.ctr)
-    const cpm         = safeFloat(ins.cpm)
-    const cpa         = clicks > 0 ? spend / clicks : 0
     // Meta returns budgets in the currency's minor unit (paise for INR)
     const dailyBudget = safeFloat(c.daily_budget ?? c.lifetime_budget) / 100
+    const adSets = (Array.isArray(c.adsets) ? c.adsets : [])
+      .map(transformMetaAdSet)
+      .filter((a: any): a is NonNullable<ReturnType<typeof transformMetaAdSet>> => a !== null)
 
     return {
       id: c.id ?? Math.random().toString(),
@@ -47,9 +117,9 @@ function transformMetaCampaign(c: any) {
       status: (c.effective_status ?? c.status ?? 'unknown').toLowerCase(),
       type: 'prospecting' as const,
       dailyBudget,
-      spend, roas, ctr, cpa, cpm, reach, impressions, clicks,
+      ...transformInsightMetrics(c.insights),
       trend: 0,
-      adSets: [],
+      adSets,
     }
   } catch {
     return null
