@@ -35,19 +35,34 @@ function getConversions(ins: any): number {
     .reduce((sum: number, a: any) => sum + safeInt(a.value), 0)
 }
 
+// Total revenue attributed to purchase-type conversions — used as a fallback
+// for ROAS when Meta doesn't return `purchase_roas` (e.g. accounts where the
+// pixel/CAPI reports value but Meta hasn't computed a ROAS rollup yet).
+function getConversionValue(ins: any): number {
+  const values = Array.isArray(ins?.action_values) ? ins.action_values : []
+  return values
+    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
+    .reduce((sum: number, a: any) => sum + safeFloat(a.value), 0)
+}
+
 function transformInsightMetrics(ins: any) {
   const spend       = safeFloat(ins?.spend)
   const impressions = safeInt(ins?.impressions)
   const clicks      = safeInt(ins?.clicks)
   const reach       = safeInt(ins?.reach)
   const frequency   = safeFloat(ins?.frequency)
-  const roasArr     = Array.isArray(ins?.purchase_roas) ? ins.purchase_roas : []
-  const roas        = roasArr.length ? safeFloat(roasArr[0]?.value) : 0
   const ctr         = safeFloat(ins?.ctr)
   const cpm         = safeFloat(ins?.cpm)
-  const cpa         = clicks > 0 ? spend / clicks : 0
   const conversions = getConversions(ins)
-  return { spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc: cpa, conversions }
+  const cpa         = conversions > 0 ? spend / conversions : 0
+  const cpc         = clicks > 0 ? spend / clicks : 0
+
+  const roasArr = Array.isArray(ins?.purchase_roas) ? ins.purchase_roas : []
+  const roas = roasArr.length
+    ? safeFloat(roasArr[0]?.value)
+    : spend > 0 ? getConversionValue(ins) / spend : 0
+
+  return { spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc, conversions }
 }
 
 // Best-effort human-readable summary of an ad set's targeting

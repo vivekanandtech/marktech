@@ -105,7 +105,7 @@ function toTimeRange(dateRange: string): { since: string; until: string } {
 const BASE_INSIGHT_FIELDS = [
   'spend', 'impressions', 'clicks', 'reach', 'frequency',
   'purchase_roas', 'cost_per_action_type',
-  'cpm', 'ctr', 'cpp', 'actions',
+  'cpm', 'ctr', 'cpp', 'actions', 'action_values',
 ]
 
 // Only request the id/name fields for the level being queried. Requesting
