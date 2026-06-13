@@ -68,7 +68,9 @@ export async function getAdAccounts(token: string): Promise<{
   status: number
   business?: { id: string; name: string } | null
 }[]> {
-  const res = await fetch(`${GRAPH}/me/adaccounts?fields=id,name,currency,account_status,business{id,name}&access_token=${token}`)
+  // Note: `business{id,name}` requires the `business_management` permission,
+  // which this app does not request (ads_read is sufficient) — omit it.
+  const res = await fetch(`${GRAPH}/me/adaccounts?fields=id,name,currency,account_status&access_token=${token}`)
   const data = await res.json() as any
   if (data.error) throw new Error(data.error.message)
   return data.data ?? []
