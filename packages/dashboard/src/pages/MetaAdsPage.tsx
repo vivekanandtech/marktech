@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Eye, MousePointer, DollarSign, TrendingUp, Layers, Loader2, AlertTriangle, Link2, ChevronDown } from 'lucide-react'
+import { Eye, MousePointer, DollarSign, TrendingUp, Layers, Loader2, AlertTriangle, Link2 } from 'lucide-react'
 import clsx from 'clsx'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '@/components/ui/MetricCard'
 import { CampaignTable } from '@/components/campaigns/CampaignTable'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useFilterStore } from '@/store/filterStore'
-import { useMetaStore } from '@/store/metaStore'
+import { useClientStore } from '@/store/clientStore'
 import { useMetaCampaigns } from '@/hooks/useMetaData'
 import { getSummaryMetrics, getCampaigns } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
@@ -56,7 +56,9 @@ function transformMetaCampaign(c: any) {
 // ─── Connected view ───────────────────────────────────────────────────────────
 function ConnectedView() {
   const { clientId } = useFilterStore()
-  const { adAccounts, selectedAdAccountId, selectAdAccount } = useMetaStore()
+  const { clients } = useClientStore()
+  const currentClient = clients.find((c) => c.id === clientId)
+  const activeAccount = currentClient?.meta.adAccounts.find((a) => a.id === currentClient?.metaAdAccountId)
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
   const [page, setPage] = useState(0)
   const { data: rawCampaigns, loading, error } = useMetaCampaigns()
@@ -89,24 +91,10 @@ function ConnectedView() {
           </div>
         </div>
 
-        {/* Ad account selector */}
-        {adAccounts.length > 1 && (
-          <div className="relative">
-            <select
-              value={selectedAdAccountId ?? ''}
-              onChange={(e) => selectAdAccount(e.target.value)}
-              className="appearance-none text-xs font-medium t1 bg-surface-2 border border-theme rounded-lg pl-3 pr-8 py-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
-            >
-              {adAccounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
-            <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 t3 pointer-events-none" />
-          </div>
-        )}
-        {adAccounts.length === 1 && (
+        {/* Active ad account — changed from Settings */}
+        {activeAccount && (
           <span className="text-xs font-medium bg-surface-2 border border-theme px-2.5 py-1.5 rounded-lg t2">
-            {adAccounts[0].name}
+            {activeAccount.name}
           </span>
         )}
       </div>
@@ -251,7 +239,9 @@ function MockView() {
 
 // ─── Page entry point ─────────────────────────────────────────────────────────
 export function MetaAdsPage() {
-  const { connected } = useMetaStore()
+  const { clientId } = useFilterStore()
+  const { clients } = useClientStore()
+  const connected = clients.find((c) => c.id === clientId)?.meta.connected ?? false
   return (
     <ErrorBoundary label="Meta Ads page encountered an error">
       {connected ? <ConnectedView /> : <MockView />}

@@ -10,7 +10,6 @@ import { CreativesPage } from '@/pages/CreativesPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { useAuthStore } from '@/store/authStore'
-import { useMetaStore } from '@/store/metaStore'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { initTheme } from '@/store/themeStore'
@@ -23,23 +22,25 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export function syncMetaStatus(clientId: string) {
-  const { setConnected, setDisconnected } = useMetaStore.getState()
+  const { setMetaConnected, setMetaDisconnected } = useClientStore.getState()
   return fetch(`${API}/auth/meta/status?clientId=${clientId}`)
     .then((r) => r.json())
     .then((data) => {
       if (data.connected) {
-        setConnected({ metaUserId: data.metaUserId, adAccounts: data.adAccounts, expiresAt: data.expiresAt })
+        setMetaConnected(clientId, { metaUserId: data.metaUserId, adAccounts: data.adAccounts, expiresAt: data.expiresAt })
       } else {
-        setDisconnected()
+        setMetaDisconnected(clientId)
       }
     })
-    .catch(() => setDisconnected())
+    .catch(() => setMetaDisconnected(clientId))
 }
 
 function MetaSyncProvider() {
   const { clientId, setClientId } = useFilterStore()
   const { clients } = useClientStore()
-  const { connected, accessToken } = useMetaStore()
+  const currentClient = clients.find((c) => c.id === clientId)
+  const connected = currentClient?.meta.connected ?? false
+  const accessToken = currentClient?.meta.accessToken ?? null
 
   // Auto-select first client if none selected or stored id no longer exists
   useEffect(() => {
@@ -48,10 +49,11 @@ function MetaSyncProvider() {
     if (!valid) setClientId(clients[0].id)
   }, [clients, clientId, setClientId])
 
-  // The Meta access token lives in browser localStorage (stateless backend).
-  // Only fall back to /auth/meta/status when we have no local connection —
-  // the server's in-memory tokenStore gets wiped on every Render restart,
-  // so trusting it over a valid local connection would wrongly disconnect us.
+  // Each client's Meta access token lives in browser localStorage (stateless
+  // backend). Only fall back to /auth/meta/status when we have no local
+  // connection for this client — the server's in-memory tokenStore gets
+  // wiped on every Render restart, so trusting it over a valid local
+  // connection would wrongly disconnect us.
   useEffect(() => {
     if (!connected && !accessToken && clientId) {
       syncMetaStatus(clientId)

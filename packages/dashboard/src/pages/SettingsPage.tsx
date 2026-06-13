@@ -6,16 +6,16 @@ import {
 } from 'lucide-react'
 import { useClientStore, type Client } from '@/store/clientStore'
 import { useFilterStore } from '@/store/filterStore'
-import { useMetaStore } from '@/store/metaStore'
 import { syncMetaStatus } from '@/App'
 
 const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001'
 
 // ─── Ad account selection screen ───────────────────────────────────────────────
-// Shown right after connecting (or when the user clicks "Edit accounts").
-// Nothing the user leaves unchecked is ever stored, fetched, or shown elsewhere.
-function AdAccountSelector() {
-  const { adAccounts, setEnabledAdAccountIds } = useMetaStore()
+// Shown right after a client connects (or when they click "Edit accounts").
+// Nothing left unchecked is ever stored, fetched, or shown elsewhere.
+function AdAccountSelector({ client }: { client: Client }) {
+  const { setEnabledAdAccountIds } = useClientStore()
+  const adAccounts = client.meta.adAccounts
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(adAccounts.length === 1 ? [adAccounts[0].id] : [])
   )
@@ -29,7 +29,7 @@ function AdAccountSelector() {
     })
   }
 
-  // Group by Business Portfolio so it's clear which client each account belongs to
+  // Group by Business Portfolio so it's clear which business each account belongs to
   const groups = new Map<string, { label: string; accounts: typeof adAccounts }>()
   for (const acc of adAccounts) {
     const key = acc.business?.id ?? '_none'
@@ -51,15 +51,15 @@ function AdAccountSelector() {
 
       <div className="space-y-3">
         {[...groups.entries()].map(([key, group]) => (
-          <div key={key} className="rounded-lg border border-theme bg-surface-2 overflow-hidden">
-            <p className="text-[11px] font-semibold uppercase tracking-wide t3 px-3 py-2 bg-surface-3 border-b border-theme">
+          <div key={key} className="rounded-lg border border-theme bg-surface-3 overflow-hidden">
+            <p className="text-[11px] font-semibold uppercase tracking-wide t3 px-3 py-2 bg-surface-2 border-b border-theme">
               {group.label}
             </p>
             <div className="divide-y divide-theme">
               {group.accounts.map((acc) => (
                 <label
                   key={acc.id}
-                  className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-3 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-surface-2 transition-colors"
                 >
                   <input
                     type="checkbox"
@@ -71,7 +71,7 @@ function AdAccountSelector() {
                     <p className="text-xs font-medium t1 truncate">{acc.name}</p>
                     <p className="text-[11px] t3">{acc.id}</p>
                   </div>
-                  <span className="text-[11px] font-medium bg-surface-3 border border-theme px-2 py-0.5 rounded-md t2">
+                  <span className="text-[11px] font-medium bg-surface-2 border border-theme px-2 py-0.5 rounded-md t2">
                     {acc.currency}
                   </span>
                 </label>
@@ -89,7 +89,7 @@ function AdAccountSelector() {
           Select all
         </button>
         <button
-          onClick={() => setEnabledAdAccountIds([...selected])}
+          onClick={() => setEnabledAdAccountIds(client.id, [...selected])}
           disabled={selected.size === 0}
           className="text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white px-4 py-2 rounded-lg transition-colors"
         >
@@ -100,143 +100,103 @@ function AdAccountSelector() {
   )
 }
 
-// ─── Global Meta connection card ──────────────────────────────────────────────
-function MetaConnectionCard() {
-  const { connected, adAccounts, enabledAdAccountIds, expiresAt, setDisconnected, reopenAdAccountSelector } = useMetaStore()
-  const { clientId } = useFilterStore()
+// ─── Per-client Meta connection ────────────────────────────────────────────────
+// Each client connects their own Meta account — fully isolated from every
+// other client. Nothing is shared between clients.
+function ClientMetaSection({ client }: { client: Client }) {
+  const { setMetaDisconnected, reopenAdAccountSelector, assignAdAccount } = useClientStore()
   const [disconnecting, setDisconnecting] = useState(false)
+  const { connected, adAccounts, enabledAdAccountIds, expiresAt } = client.meta
 
   async function disconnect() {
     setDisconnecting(true)
     try {
-      await fetch(`${API}/auth/meta/disconnect?clientId=${clientId}`, { method: 'DELETE' })
-      setDisconnected()
+      await fetch(`${API}/auth/meta/disconnect?clientId=${client.id}`, { method: 'DELETE' })
+      setMetaDisconnected(client.id)
     } finally {
       setDisconnecting(false)
     }
   }
 
-  const enabledAccounts = adAccounts.filter((acc) => enabledAdAccountIds?.includes(acc.id))
-
-  return (
-    <div className="card p-5 space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-[#1877F2]/10 flex items-center justify-center shrink-0">
-          <svg viewBox="0 0 24 24" className="w-5 h-5 fill-[#1877F2]">
-            <path d="M12 2C6.477 2 2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.879V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.989C18.343 21.129 22 16.99 22 12c0-5.523-4.477-10-10-10z" />
-          </svg>
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-semibold t1">Meta Ads</p>
-          <p className="text-xs t3">Connect once — assign ad accounts to each client below</p>
-        </div>
-      </div>
-
-      {connected && enabledAdAccountIds === null ? (
-        <AdAccountSelector />
-      ) : connected ? (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Connected</span>
-            <span className="text-xs t3">· {enabledAccounts.length} of {adAccounts.length} ad account{adAccounts.length !== 1 ? 's' : ''} enabled</span>
-          </div>
-
-          <div className="rounded-lg border border-theme bg-surface-2 divide-y divide-theme overflow-hidden">
-            {enabledAccounts.map((acc) => (
-              <div key={acc.id} className="flex items-center justify-between px-3 py-2">
-                <div>
-                  <p className="text-xs font-medium t1">{acc.name}</p>
-                  <p className="text-[11px] t3">{acc.id}{acc.business?.name ? ` · ${acc.business.name}` : ''}</p>
-                </div>
-                <span className="text-[11px] font-medium bg-surface-3 border border-theme px-2 py-0.5 rounded-md t2">{acc.currency}</span>
-              </div>
-            ))}
-            {enabledAccounts.length === 0 && (
-              <div className="px-3 py-2 text-xs t3">No ad accounts enabled yet.</div>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between">
-            <p className="text-[11px] t3">
-              Expires {expiresAt ? new Date(expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={reopenAdAccountSelector}
-                className="text-xs font-medium t2 hover:t1 transition-colors"
-              >
-                Edit accounts
-              </button>
-              <button
-                onClick={disconnect}
-                disabled={disconnecting}
-                className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50"
-              >
-                {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
-                Disconnect
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-xs t3">
-            Connect your Meta Business account to pull live campaign data for all your clients in one go.
-          </p>
-          <a
-            href={`${API}/auth/meta?clientId=${clientId || 'default'}`}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1877F2] hover:bg-[#166fe5] text-white text-xs font-semibold px-4 py-2 transition-colors"
-          >
-            <Link2 size={13} /> Connect Meta Ads
-          </a>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ─── Per-client ad account assignment ────────────────────────────────────────
-function ClientAdAccountRow({ client }: { client: Client }) {
-  const { adAccounts, connected, enabledAdAccountIds } = useMetaStore()
-  const { assignAdAccount } = useClientStore()
-
-  const availableAccounts = adAccounts.filter((acc) => enabledAdAccountIds?.includes(acc.id))
-
-  if (!connected || availableAccounts.length === 0) {
+  if (!connected) {
     return (
-      <div className="flex items-center gap-2 mt-3 text-xs t3">
-        <span className="w-1.5 h-1.5 rounded-full bg-surface-3 border border-theme shrink-0" />
-        {!connected
-          ? 'Connect Meta Ads above to assign an ad account'
-          : 'Enable at least one ad account above to assign it here'}
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-dashed border-theme px-3 py-2.5">
+        <p className="text-xs t3">Connect this client's own Meta account to pull their live campaign data.</p>
+        <a
+          href={`${API}/auth/meta?clientId=${client.id}`}
+          className="inline-flex items-center gap-1.5 shrink-0 rounded-lg bg-[#1877F2] hover:bg-[#166fe5] text-white text-xs font-semibold px-3 py-1.5 transition-colors"
+        >
+          <Link2 size={12} /> Connect Meta Ads
+        </a>
       </div>
     )
   }
 
-  return (
-    <div className="mt-3 flex items-center gap-2">
-      <svg viewBox="0 0 24 24" className="w-4 h-4 fill-[#1877F2] shrink-0">
-        <path d="M12 2C6.477 2 2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.879V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.989C18.343 21.129 22 16.99 22 12c0-5.523-4.477-10-10-10z" />
-      </svg>
-      <div className="relative flex-1">
-        <select
-          value={client.metaAdAccountId ?? ''}
-          onChange={(e) => assignAdAccount(client.id, e.target.value || null)}
-          className="w-full appearance-none text-xs t1 bg-surface-2 border border-theme rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
-        >
-          <option value="">— Select ad account —</option>
-          {availableAccounts.map((acc) => (
-            <option key={acc.id} value={acc.id}>
-              {acc.name} ({acc.currency})
-            </option>
-          ))}
-        </select>
-        <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 t3 pointer-events-none" />
+  if (enabledAdAccountIds === null) {
+    return (
+      <div className="mt-3 rounded-lg border border-theme bg-surface-2 p-3">
+        <AdAccountSelector client={client} />
       </div>
-      {client.metaAdAccountId && (
-        <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="Ad account assigned" />
+    )
+  }
+
+  const enabledAccounts = adAccounts.filter((acc) => enabledAdAccountIds.includes(acc.id))
+
+  return (
+    <div className="mt-3 space-y-2.5 rounded-lg border border-theme bg-surface-2 p-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Meta connected</span>
+          <span className="text-xs t3">· {enabledAccounts.length} of {adAccounts.length} enabled</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => reopenAdAccountSelector(client.id)}
+            className="text-xs font-medium t2 hover:t1 transition-colors"
+          >
+            Edit accounts
+          </button>
+          <button
+            onClick={disconnect}
+            disabled={disconnecting}
+            className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50"
+          >
+            {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+            Disconnect
+          </button>
+        </div>
+      </div>
+
+      {enabledAccounts.length > 1 ? (
+        <div className="relative">
+          <select
+            value={client.metaAdAccountId ?? ''}
+            onChange={(e) => assignAdAccount(client.id, e.target.value || null)}
+            className="w-full appearance-none text-xs t1 bg-surface-3 border border-theme rounded-lg pl-3 pr-8 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 cursor-pointer"
+          >
+            <option value="">— Select ad account to show —</option>
+            {enabledAccounts.map((acc) => (
+              <option key={acc.id} value={acc.id}>{acc.name} ({acc.currency})</option>
+            ))}
+          </select>
+          <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 t3 pointer-events-none" />
+        </div>
+      ) : enabledAccounts.length === 1 ? (
+        <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-surface-3 border border-theme">
+          <div>
+            <p className="text-xs font-medium t1">{enabledAccounts[0].name}</p>
+            <p className="text-[11px] t3">{enabledAccounts[0].id}</p>
+          </div>
+          <span className="text-[11px] font-medium bg-surface-2 border border-theme px-2 py-0.5 rounded-md t2">{enabledAccounts[0].currency}</span>
+        </div>
+      ) : (
+        <p className="text-xs t3">No ad accounts enabled — click "Edit accounts" to choose one.</p>
       )}
+
+      <p className="text-[11px] t3">
+        Expires {expiresAt ? new Date(expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
+      </p>
     </div>
   )
 }
@@ -316,7 +276,7 @@ function ClientCard({ client }: { client: Client }) {
         </div>
       </div>
 
-      <ClientAdAccountRow client={client} />
+      <ClientMetaSection client={client} />
     </div>
   )
 }
@@ -363,15 +323,14 @@ function AddClientForm({ onDone }: { onDone: (id: string) => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export function SettingsPage() {
-  const { clients } = useClientStore()
+  const { clients, setMetaConnected } = useClientStore()
   const { setClientId } = useFilterStore()
-  const { setConnected } = useMetaStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const [showAddForm, setShowAddForm] = useState(false)
 
   const oauthResult = searchParams.get('meta')
   const oauthReason = searchParams.get('reason')
-  const oauthAccounts = searchParams.get('accounts')
+  const oauthClientId = searchParams.get('clientId')
 
   useEffect(() => {
     if (oauthResult === 'connected') {
@@ -380,19 +339,20 @@ export function SettingsPage() {
       const accRaw = searchParams.get('acc')
       const exp = searchParams.get('exp')
 
-      if (at && uid && accRaw) {
+      if (oauthClientId && at && uid && accRaw) {
         try {
           const adAccounts = JSON.parse(decodeURIComponent(accRaw))
-          setConnected({
+          setMetaConnected(oauthClientId, {
             accessToken: at,
             metaUserId: uid,
             adAccounts,
             expiresAt: exp ?? new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString(),
           })
+          setClientId(oauthClientId)
         } catch { /* ignore */ }
-      } else {
-        const { clientId } = useFilterStore.getState()
-        syncMetaStatus(clientId)
+      } else if (oauthClientId) {
+        syncMetaStatus(oauthClientId)
+        setClientId(oauthClientId)
       }
 
       const t = setTimeout(() => setSearchParams({}, { replace: true }), 5000)
@@ -413,7 +373,7 @@ export function SettingsPage() {
     <div className="space-y-6 animate-fade-in max-w-2xl">
       <div>
         <h1 className="text-xl font-bold t1">Clients & Integrations</h1>
-        <p className="text-sm t3 mt-0.5">Connect Meta once, then map each client to their ad account</p>
+        <p className="text-sm t3 mt-0.5">Each client connects their own Meta account — fully isolated from every other client</p>
       </div>
 
       {oauthResult === 'connected' && (
@@ -421,9 +381,7 @@ export function SettingsPage() {
           <CheckCircle size={18} className="text-emerald-500 mt-0.5 shrink-0" />
           <div>
             <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Meta Ads connected successfully</p>
-            {oauthAccounts && (
-              <p className="text-xs t3 mt-0.5">Now assign each client below to their ad account</p>
-            )}
+            <p className="text-xs t3 mt-0.5">Choose which ad accounts to enable below</p>
           </div>
         </div>
       )}
@@ -437,10 +395,7 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* Single global Meta connection */}
-      <MetaConnectionCard />
-
-      {/* Client list with ad account assignment */}
+      {/* Client list — each with its own Meta connection */}
       <div>
         <p className="text-xs font-semibold t2 uppercase tracking-wide mb-3">Clients</p>
 

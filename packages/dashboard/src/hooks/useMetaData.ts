@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useFilterStore } from '@/store/filterStore'
-import { useMetaStore } from '@/store/metaStore'
 import { useClientStore } from '@/store/clientStore'
 import { API } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
@@ -37,11 +36,13 @@ export interface MetaCampaign {
 
 export function useMetaCampaigns() {
   const { clientId } = useFilterStore()
-  const { clients } = useClientStore()
-  const { connected, setDisconnected, accessToken, enabledAdAccountIds } = useMetaStore()
+  const { clients, setMetaDisconnected } = useClientStore()
+  const currentClient = clients.find((c) => c.id === clientId)
+  const { connected, accessToken, enabledAdAccountIds } = currentClient?.meta ?? {
+    connected: false, accessToken: null, enabledAdAccountIds: null,
+  }
   // Use the ad account assigned to this specific client — but only if it's
   // still one of the accounts the user has enabled for Marktech to use.
-  const currentClient = clients.find((c) => c.id === clientId)
   const assignedAdAccountId = currentClient?.metaAdAccountId ?? null
   const selectedAdAccountId =
     assignedAdAccountId && enabledAdAccountIds?.includes(assignedAdAccountId) ? assignedAdAccountId : null
@@ -55,7 +56,7 @@ export function useMetaCampaigns() {
     setError(null)
     metaFetch(`/api/meta/campaigns?clientId=${clientId}&adAccountId=${selectedAdAccountId}`, accessToken)
       .then(async (r) => {
-        if (r.status === 401) { setDisconnected(); return }
+        if (r.status === 401) { setMetaDisconnected(clientId); return }
         const json = await r.json()
         if (json.error) { setError(json.error); return }
         setData(json.data ?? [])
@@ -63,29 +64,6 @@ export function useMetaCampaigns() {
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [clientId, connected, selectedAdAccountId, accessToken])
-
-  return { data, loading, error }
-}
-
-export function useMetaInsights(datePreset = 'last_30d') {
-  const { clientId } = useFilterStore()
-  const { connected, selectedAdAccountId, accessToken } = useMetaStore()
-  const [data, setData] = useState<any[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!connected || !selectedAdAccountId) return
-    setLoading(true)
-    setError(null)
-    metaFetch(`/api/meta/insights?clientId=${clientId}&adAccountId=${selectedAdAccountId}&datePreset=${datePreset}&level=campaign`, accessToken)
-      .then(async (r) => {
-        const json = await r.json()
-        setData(json.data ?? [])
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [clientId, connected, selectedAdAccountId, datePreset, accessToken])
 
   return { data, loading, error }
 }

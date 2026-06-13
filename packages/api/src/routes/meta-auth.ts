@@ -23,7 +23,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
       const FRONTEND = process.env.FRONTEND_URL ?? 'http://localhost:5174'
 
       if (error || !code) {
-        return reply.redirect(`${FRONTEND}/settings?meta=error&reason=${error ?? 'no_code'}`)
+        return reply.redirect(`${FRONTEND}/settings?meta=error&clientId=${encodeURIComponent(state ?? 'default')}&reason=${error ?? 'no_code'}`)
       }
 
       try {
@@ -59,11 +59,11 @@ export async function metaAuthRoutes(app: FastifyInstance) {
         }))))
         const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
         return reply.redirect(
-          `${FRONTEND}/settings?meta=connected&accounts=${accountNames}&at=${encodeURIComponent(longToken)}&uid=${metaUserId}&acc=${accountData}&exp=${encodeURIComponent(expiresAt)}`
+          `${FRONTEND}/settings?meta=connected&clientId=${encodeURIComponent(clientId)}&accounts=${accountNames}&at=${encodeURIComponent(longToken)}&uid=${metaUserId}&acc=${accountData}&exp=${encodeURIComponent(expiresAt)}`
         )
       } catch (err: any) {
         app.log.error(err, 'Meta OAuth callback failed')
-        return reply.redirect(`${FRONTEND}/settings?meta=error&reason=${encodeURIComponent(err.message)}`)
+        return reply.redirect(`${FRONTEND}/settings?meta=error&clientId=${encodeURIComponent(state ?? 'default')}&reason=${encodeURIComponent(err.message)}`)
       }
     }
   )
