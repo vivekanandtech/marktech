@@ -8,6 +8,7 @@ export interface Client {
   logoInitials: string
   logoColor: string
   createdAt: string
+  metaAdAccountId: string | null   // which ad account this client maps to
 }
 
 const COLORS = [
@@ -35,6 +36,7 @@ interface ClientStore {
   addClient: (name: string, industry: string) => Client
   removeClient: (id: string) => void
   updateClient: (id: string, updates: Pick<Client, 'name' | 'industry'>) => void
+  assignAdAccount: (clientId: string, adAccountId: string | null) => void
 }
 
 export const useClientStore = create<ClientStore>()(
@@ -50,6 +52,7 @@ export const useClientStore = create<ClientStore>()(
           logoInitials: initials(name),
           logoColor: pickColor(name),
           createdAt: new Date().toISOString(),
+          metaAdAccountId: null,
         }
         set({ clients: [...get().clients, client] })
         return client
@@ -64,6 +67,13 @@ export const useClientStore = create<ClientStore>()(
             c.id === id
               ? { ...c, ...updates, logoInitials: initials(updates.name), logoColor: pickColor(updates.name) }
               : c
+          ),
+        }),
+
+      assignAdAccount: (clientId, adAccountId) =>
+        set({
+          clients: get().clients.map((c) =>
+            c.id === clientId ? { ...c, metaAdAccountId: adAccountId } : c
           ),
         }),
     }),

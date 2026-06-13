@@ -51,7 +51,12 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
         // Pass token to frontend so it survives server restarts (stored in browser localStorage)
         const accountNames = adAccounts.map((a: any) => encodeURIComponent(a.name)).join(',')
-        const accountData = encodeURIComponent(JSON.stringify(adAccounts.map((a: any) => ({ id: a.id, name: a.name, currency: a.currency }))))
+        const accountData = encodeURIComponent(JSON.stringify(adAccounts.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          currency: a.currency,
+          business: a.business ? { id: a.business.id, name: a.business.name } : null,
+        }))))
         const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
         return reply.redirect(
           `${FRONTEND}/settings?meta=connected&accounts=${accountNames}&at=${encodeURIComponent(longToken)}&uid=${metaUserId}&acc=${accountData}&exp=${encodeURIComponent(expiresAt)}`
@@ -79,7 +84,12 @@ export async function metaAuthRoutes(app: FastifyInstance) {
     return {
       connected: true,
       metaUserId: stored.metaUserId,
-      adAccounts: adAccounts.map((a: any) => ({ id: a.id, name: a.name, currency: a.currency })),
+      adAccounts: adAccounts.map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        currency: a.currency,
+        business: a.business ? { id: a.business.id, name: a.business.name } : null,
+      })),
       expiresAt: new Date(stored.expiresAt).toISOString(),
     }
   })

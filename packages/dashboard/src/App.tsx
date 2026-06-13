@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { LoginPage } from '@/pages/LoginPage'
+import { PrivacyPolicyPage } from '@/pages/PrivacyPolicyPage'
 import { OverviewPage } from '@/pages/OverviewPage'
 import { MetaAdsPage } from '@/pages/MetaAdsPage'
 import { GoogleAdsPage } from '@/pages/GoogleAdsPage'
@@ -38,7 +39,7 @@ export function syncMetaStatus(clientId: string) {
 function MetaSyncProvider() {
   const { clientId, setClientId } = useFilterStore()
   const { clients } = useClientStore()
-  const { accessToken, setConnected } = useMetaStore()
+  const { connected, accessToken } = useMetaStore()
 
   // Auto-select first client if none selected or stored id no longer exists
   useEffect(() => {
@@ -47,15 +48,15 @@ function MetaSyncProvider() {
     if (!valid) setClientId(clients[0].id)
   }, [clients, clientId, setClientId])
 
-  // If we have a persisted accessToken, mark as connected without hitting server
+  // The Meta access token lives in browser localStorage (stateless backend).
+  // Only fall back to /auth/meta/status when we have no local connection —
+  // the server's in-memory tokenStore gets wiped on every Render restart,
+  // so trusting it over a valid local connection would wrongly disconnect us.
   useEffect(() => {
-    if (accessToken) {
-      // Verify it's still valid by checking status
-      syncMetaStatus(clientId)
-    } else if (clientId) {
+    if (!connected && !accessToken && clientId) {
       syncMetaStatus(clientId)
     }
-  }, [clientId])
+  }, [clientId, connected, accessToken])
 
   return null
 }
@@ -67,6 +68,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route
           path="/"
           element={

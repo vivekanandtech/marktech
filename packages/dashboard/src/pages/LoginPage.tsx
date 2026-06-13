@@ -1,6 +1,6 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
-import { Zap, Eye, EyeOff } from 'lucide-react'
+import { Zap, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { API } from '@/lib/api'
 
@@ -11,6 +11,13 @@ export function LoginPage() {
   const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [waking, setWaking] = useState(false)
+
+  // Pre-warm the API on page load — Render's free tier sleeps after 15min
+  // idle, so this gives the server a head start while the user types.
+  useEffect(() => {
+    fetch(`${API}/health`).catch(() => {})
+  }, [])
 
   if (isAuthenticated) return <Navigate to="/overview" replace />
 
@@ -18,22 +25,37 @@ export function LoginPage() {
     e.preventDefault()
     setError('')
     setLoading(true)
+    setWaking(false)
+
+    const wakingTimer = setTimeout(() => setWaking(true), 4000)
+    const controller = new AbortController()
+    const timeoutTimer = setTimeout(() => controller.abort(), 45000)
+
     try {
       const res = await fetch(`${API}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
+        signal: controller.signal,
       })
       const data = await res.json()
       if (!res.ok) {
-        setError(data.error ?? 'Invalid credentials')
+        setError(data.error ?? 'Invalid email or password.')
       } else {
         login(data.user, data.token)
       }
-    } catch {
-      setError('Cannot reach server. Is the API running?')
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        setError('Server took too long to respond. It may be waking up from sleep — please try again.')
+      } else {
+        setError('Cannot reach server. Check your connection and try again.')
+      }
+    } finally {
+      clearTimeout(wakingTimer)
+      clearTimeout(timeoutTimer)
+      setLoading(false)
+      setWaking(false)
     }
-    setLoading(false)
   }
 
   return (
@@ -94,11 +116,19 @@ export function LoginPage() {
               </p>
             )}
 
+            {loading && waking && (
+              <p className="flex items-center gap-1.5 text-xs t3 justify-center">
+                <Loader2 size={12} className="animate-spin" />
+                Waking up the server — this can take up to 30 seconds on first load…
+              </p>
+            )}
+
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-sm font-semibold rounded-lg transition-all shadow-lg shadow-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-sm font-semibold rounded-lg transition-all shadow-lg shadow-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
+              {loading && <Loader2 size={14} className="animate-spin" />}
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>

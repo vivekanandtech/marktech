@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useFilterStore } from '@/store/filterStore'
 import { useMetaStore } from '@/store/metaStore'
+import { useClientStore } from '@/store/clientStore'
 import { API } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 
@@ -36,7 +37,14 @@ export interface MetaCampaign {
 
 export function useMetaCampaigns() {
   const { clientId } = useFilterStore()
-  const { connected, selectedAdAccountId, setDisconnected, accessToken } = useMetaStore()
+  const { clients } = useClientStore()
+  const { connected, setDisconnected, accessToken, enabledAdAccountIds } = useMetaStore()
+  // Use the ad account assigned to this specific client — but only if it's
+  // still one of the accounts the user has enabled for Marktech to use.
+  const currentClient = clients.find((c) => c.id === clientId)
+  const assignedAdAccountId = currentClient?.metaAdAccountId ?? null
+  const selectedAdAccountId =
+    assignedAdAccountId && enabledAdAccountIds?.includes(assignedAdAccountId) ? assignedAdAccountId : null
   const [data, setData] = useState<MetaCampaign[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
