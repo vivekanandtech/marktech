@@ -35,7 +35,7 @@ export interface MetaCampaign {
 }
 
 export function useMetaCampaigns() {
-  const { clientId } = useFilterStore()
+  const { clientId, dateRange } = useFilterStore()
   const { clients, setMetaDisconnected } = useClientStore()
   const currentClient = clients.find((c) => c.id === clientId)
   const { connected, accessToken, enabledAdAccountIds } = currentClient?.meta ?? {
@@ -54,7 +54,7 @@ export function useMetaCampaigns() {
     if (!connected || !selectedAdAccountId) return
     setLoading(true)
     setError(null)
-    metaFetch(`/api/meta/campaigns?clientId=${clientId}&adAccountId=${selectedAdAccountId}`, accessToken)
+    metaFetch(`/api/meta/campaigns?clientId=${clientId}&adAccountId=${selectedAdAccountId}&dateRange=${dateRange}`, accessToken)
       .then(async (r) => {
         if (r.status === 401) { setMetaDisconnected(clientId); return }
         const json = await r.json()
@@ -63,7 +63,7 @@ export function useMetaCampaigns() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [clientId, connected, selectedAdAccountId, accessToken])
+  }, [clientId, connected, selectedAdAccountId, accessToken, dateRange])
 
   return { data, loading, error }
 }

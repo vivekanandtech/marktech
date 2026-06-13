@@ -86,24 +86,49 @@ export async function getCampaigns(adAccountId: string, token: string) {
   return data.data ?? []
 }
 
+// Rolling-window lengths for each UI date range option. Meta's `date_preset`
+// values don't cover arbitrary ranges like "last 3 months", so we always
+// compute an explicit `time_range` instead.
+const DAYS_MAP: Record<string, number> = {
+  '1D': 1, '3D': 3, '7D': 7, '14D': 14, '30D': 30, '3M': 90, '6M': 180, '1Y': 365,
+}
+
+function toTimeRange(dateRange: string): { since: string; until: string } {
+  const days = DAYS_MAP[dateRange] ?? 30
+  const until = new Date()
+  const since = new Date(until)
+  since.setDate(since.getDate() - (days - 1))
+  const fmt = (d: Date) => d.toISOString().slice(0, 10)
+  return { since: fmt(since), until: fmt(until) }
+}
+
+const BASE_INSIGHT_FIELDS = [
+  'spend', 'impressions', 'clicks', 'reach', 'frequency',
+  'purchase_roas', 'cost_per_action_type',
+  'cpm', 'ctr', 'cpp', 'actions',
+]
+
+// Only request the id/name fields for the level being queried. Requesting
+// e.g. ad_id/ad_name at level=campaign makes Meta return one row per ad
+// (each with only that ad's slice of spend) instead of one aggregated row
+// per campaign, which broke the campaign_id-keyed insight lookup.
+const LEVEL_FIELDS: Record<string, string[]> = {
+  campaign: ['campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
+  adset: ['adset_id', 'adset_name', 'campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
+  ad: ['ad_id', 'ad_name', 'adset_id', 'adset_name', 'campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
+}
+
 export async function getCampaignInsights(
   adAccountId: string,
   token: string,
-  datePreset = 'last_30d',
+  dateRange = '30D',
   level = 'campaign'
 ) {
-  const fields = [
-    'campaign_id', 'campaign_name',
-    'adset_id', 'adset_name',
-    'ad_id', 'ad_name',
-    'spend', 'impressions', 'clicks', 'reach', 'frequency',
-    'purchase_roas', 'cost_per_action_type',
-    'cpm', 'ctr', 'cpp', 'actions',
-  ].join(',')
+  const fields = (LEVEL_FIELDS[level] ?? LEVEL_FIELDS.campaign).join(',')
 
   const params = new URLSearchParams({
     fields,
-    date_preset: datePreset,
+    time_range: JSON.stringify(toTimeRange(dateRange)),
     level,
     access_token: token,
   })
