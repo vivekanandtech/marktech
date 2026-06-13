@@ -42,7 +42,8 @@ export function Badge({ children, variant = 'default', dot = false, className }:
   )
 }
 
-export const ActionTagBadge = ({ tag }: { tag: string }) => {
+export const ActionTagBadge = ({ tag }: { tag?: string }) => {
+  if (!tag) return null
   const map: Record<string, BadgeVariant> = { scale: 'success', watch: 'warning', pause: 'danger', optimise: 'info' }
   return <Badge variant={map[tag] ?? 'default'}>{tag.charAt(0).toUpperCase() + tag.slice(1)}</Badge>
 }

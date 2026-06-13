@@ -37,6 +37,8 @@ function transformMetaCampaign(c: any) {
     const ctr         = safeFloat(ins.ctr)
     const cpm         = safeFloat(ins.cpm)
     const cpa         = clicks > 0 ? spend / clicks : 0
+    // Meta returns budgets in the currency's minor unit (paise for INR)
+    const dailyBudget = safeFloat(c.daily_budget ?? c.lifetime_budget) / 100
 
     return {
       id: c.id ?? Math.random().toString(),
@@ -44,6 +46,7 @@ function transformMetaCampaign(c: any) {
       platform: 'meta' as const,
       status: (c.effective_status ?? c.status ?? 'unknown').toLowerCase(),
       type: 'prospecting' as const,
+      dailyBudget,
       spend, roas, ctr, cpa, cpm, reach, impressions, clicks,
       trend: 0,
       adSets: [],
