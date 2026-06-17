@@ -8,16 +8,17 @@ interface TrendBadgeProps {
 }
 
 export function TrendBadge({ change, improving, size = 'sm' }: TrendBadgeProps) {
-  const isFlat = Math.abs(change) < 0.1
+  const safeChange = change ?? 0
+  const isFlat = Math.abs(safeChange) < 0.1
   const positive = improving
-  const sign = change > 0 ? '+' : ''
+  const sign = safeChange > 0 ? '+' : ''
   const iconSize = size === 'sm' ? 11 : 13
 
   if (isFlat) {
     return (
       <span className={clsx('inline-flex items-center gap-1 font-medium text-slate-400', size === 'sm' ? 'text-xs' : 'text-sm')}>
         <Minus size={iconSize} />
-        {sign}{change.toFixed(1)}%
+        {sign}{safeChange.toFixed(1)}%
       </span>
     )
   }
@@ -31,7 +32,7 @@ export function TrendBadge({ change, improving, size = 'sm' }: TrendBadgeProps) 
       )}
     >
       {positive ? <TrendingUp size={iconSize} /> : <TrendingDown size={iconSize} />}
-      {sign}{change.toFixed(1)}%
+      {sign}{safeChange.toFixed(1)}%
     </span>
   )
 }

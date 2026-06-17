@@ -59,7 +59,7 @@ export function AdRow({ ad }: { ad: Ad }) {
       </td>
 
       <td className="px-3 py-2 text-right text-[11px]">
-        <p className={clsx('font-bold', ad.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : ad.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
+        <p className={clsx('font-bold', ad.roas <= 0 ? 't3' : ad.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : ad.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
           {formatRoas(ad.roas)}
         </p>
       </td>

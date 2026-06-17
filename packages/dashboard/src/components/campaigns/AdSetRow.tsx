@@ -51,7 +51,7 @@ export function AdSetRow({ adSet }: { adSet: AdSet }) {
         </td>
 
         <td className="px-3 py-2.5 text-right text-xs">
-          <p className={clsx('font-bold', adSet.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : adSet.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
+          <p className={clsx('font-bold', adSet.roas <= 0 ? 't3' : adSet.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : adSet.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
             {formatRoas(adSet.roas)}
           </p>
         </td>

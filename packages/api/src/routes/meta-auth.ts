@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
-  getCampaignInsights, getCampaigns, getAdSets, getAds,
+  getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail,
 } from '../services/meta'
 
 export async function metaAuthRoutes(app: FastifyInstance) {
@@ -130,79 +130,47 @@ export async function metaDataRoutes(app: FastifyInstance) {
       const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
-      // Ad sets / ads / insights are best-effort — a transient error or rate
-      // limit on one of these shouldn't blank out the whole page. The
-      // campaign list itself is required, so it's allowed to throw/401.
-      const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
-        try {
-          return await fn()
-        } catch (err: any) {
-          app.log.error({ err: err.message, label }, 'Meta API call failed, returning empty')
-          return []
+      const safe = async (label: string, fn: () => Promise<any>): Promise<any> => {
+        try { return await fn() }
+        catch (err: any) {
+          app.log.error({ err: err.message, label }, 'Meta API call failed')
+          return null
         }
       }
 
-      const [campaigns, campaignInsights, adsets, adsetInsights, ads, adInsights] = await Promise.all([
+      // Fetch campaigns + campaign-level insights (paginated) and account-level
+      // totals in parallel. Ad sets/ads are loaded lazily per campaign on expand.
+      const [campaigns, campaignInsights, accountInsights] = await Promise.all([
         getCampaigns(adAccountId, token),
         safe('campaignInsights', () => getCampaignInsights(adAccountId, token, dateRange, 'campaign')),
-        safe('adsets', () => getAdSets(adAccountId, token)),
-        safe('adsetInsights', () => getCampaignInsights(adAccountId, token, dateRange, 'adset')),
-        safe('ads', () => getAds(adAccountId, token)),
-        safe('adInsights', () => getCampaignInsights(adAccountId, token, dateRange, 'ad')),
+        safe('accountInsights',  () => getAccountInsights(adAccountId, token, dateRange)),
       ])
 
-      const campaignInsightMap = new Map(campaignInsights.map((i: any) => [i.campaign_id, i]))
-      const adsetInsightMap = new Map(adsetInsights.map((i: any) => [i.adset_id, i]))
-      const adInsightMap = new Map(adInsights.map((i: any) => [i.ad_id, i]))
-
-      const adsByAdset = new Map<string, any[]>()
-      for (const ad of ads) {
-        const list = adsByAdset.get(ad.adset_id) ?? []
-        list.push({ ...ad, insights: adInsightMap.get(ad.id) ?? null })
-        adsByAdset.set(ad.adset_id, list)
-      }
-
-      const adsetsByCampaign = new Map<string, any[]>()
-      for (const adset of adsets) {
-        const list = adsetsByCampaign.get(adset.campaign_id) ?? []
-        list.push({ ...adset, insights: adsetInsightMap.get(adset.id) ?? null, ads: adsByAdset.get(adset.id) ?? [] })
-        adsetsByCampaign.set(adset.campaign_id, list)
-      }
+      const insightMap = new Map((campaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
 
       return {
         data: campaigns.map((c: any) => ({
           ...c,
-          insights: campaignInsightMap.get(c.id) ?? null,
-          adsets: adsetsByCampaign.get(c.id) ?? [],
+          insights: insightMap.get(c.id) ?? null,
+          adsets: [],
         })),
+        accountInsights: accountInsights ?? null,
         source: 'meta_api',
       }
     }
   )
 
-  app.get<{ Querystring: { clientId?: string; adAccountId: string; campaignId?: string } }>(
-    '/adsets',
+  // Lazy-loaded per-campaign detail: ad sets + ads + their insights.
+  // Called when the user expands a campaign row in the UI.
+  app.get<{ Querystring: { clientId?: string; campaignId: string; dateRange?: string } }>(
+    '/campaign-detail',
     async (request, reply) => {
-      const { clientId = 'default', adAccountId, campaignId } = request.query
+      const { clientId = 'default', campaignId, dateRange = '30D' } = request.query
       const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
-
-      const [adsets, insights] = await Promise.all([
-        getAdSets(adAccountId, token, campaignId),
-        getCampaignInsights(adAccountId, token, '30D', 'adset'),
-      ])
-      const insightMap = new Map(insights.map((i: any) => [i.adset_id, i]))
-      return { data: adsets.map((a: any) => ({ ...a, insights: insightMap.get(a.id) ?? null })), source: 'meta_api' }
+      const adSets = await getCampaignDetail(campaignId, token, dateRange)
+      return { adSets, source: 'meta_api' }
     }
   )
 
-  app.get<{ Querystring: { clientId?: string; adAccountId: string } }>(
-    '/ads',
-    async (request, reply) => {
-      const { clientId = 'default', adAccountId } = request.query
-      const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
-      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
-      return { data: await getAds(adAccountId, token), source: 'meta_api' }
-    }
-  )
 }

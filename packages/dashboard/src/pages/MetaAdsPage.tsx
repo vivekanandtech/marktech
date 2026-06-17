@@ -10,6 +10,7 @@ import { useClientStore } from '@/store/clientStore'
 import { useMetaCampaigns } from '@/hooks/useMetaData'
 import { getSummaryMetrics, getCampaigns } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
+import { transformInsightMetrics, transformMetaCampaign } from '@/lib/meta-transform'
 
 type CampaignFilter = 'all' | 'active' | 'paused' | 'archived'
 
@@ -22,125 +23,6 @@ const CAMPAIGN_FILTERS: { value: CampaignFilter; label: string }[] = [
 
 const PAGE_SIZE = 20
 
-// ─── Transform Meta API data → CampaignTable / AdSetRow / AdRow shapes ───────
-const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
-const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
-
-const PURCHASE_ACTION_TYPES = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']
-
-function getConversions(ins: any): number {
-  const actions = Array.isArray(ins?.actions) ? ins.actions : []
-  return actions
-    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + safeInt(a.value), 0)
-}
-
-// Total revenue attributed to purchase-type conversions — used as a fallback
-// for ROAS when Meta doesn't return `purchase_roas` (e.g. accounts where the
-// pixel/CAPI reports value but Meta hasn't computed a ROAS rollup yet).
-function getConversionValue(ins: any): number {
-  const values = Array.isArray(ins?.action_values) ? ins.action_values : []
-  return values
-    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + safeFloat(a.value), 0)
-}
-
-function transformInsightMetrics(ins: any) {
-  const spend       = safeFloat(ins?.spend)
-  const impressions = safeInt(ins?.impressions)
-  const clicks      = safeInt(ins?.clicks)
-  const reach       = safeInt(ins?.reach)
-  const frequency   = safeFloat(ins?.frequency)
-  const ctr         = safeFloat(ins?.ctr)
-  const cpm         = safeFloat(ins?.cpm)
-  const conversions = getConversions(ins)
-  const cpa         = conversions > 0 ? spend / conversions : 0
-  const cpc         = clicks > 0 ? spend / clicks : 0
-
-  const roasArr = Array.isArray(ins?.purchase_roas) ? ins.purchase_roas : []
-  const roas = roasArr.length
-    ? safeFloat(roasArr[0]?.value)
-    : spend > 0 ? getConversionValue(ins) / spend : 0
-
-  return { spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc, conversions }
-}
-
-// Best-effort human-readable summary of an ad set's targeting
-function summarizeTargeting(targeting: any): string {
-  if (!targeting) return ''
-  const parts: string[] = []
-  const countries = targeting.geo_locations?.countries
-  if (Array.isArray(countries) && countries.length) parts.push(countries.join(', '))
-  if (targeting.age_min || targeting.age_max) parts.push(`Age ${targeting.age_min ?? 13}-${targeting.age_max ?? 65}`)
-  const genderMap: Record<number, string> = { 1: 'Men', 2: 'Women' }
-  if (Array.isArray(targeting.genders) && targeting.genders.length === 1) {
-    const g = genderMap[targeting.genders[0]]
-    if (g) parts.push(g)
-  }
-  return parts.join(' · ')
-}
-
-function transformMetaAd(a: any) {
-  try {
-    const creative = a.creative ?? {}
-    const format = creative.video_id ? 'video' : creative.object_type === 'SHARE' ? 'carousel' : 'image'
-    return {
-      id: a.id ?? Math.random().toString(),
-      name: a.name ?? 'Unnamed ad',
-      format,
-      status: (a.effective_status ?? a.status ?? 'unknown').toLowerCase(),
-      thumbnailUrl: creative.thumbnail_url ?? creative.image_url ?? '',
-      ...transformInsightMetrics(a.insights),
-      trend: 0,
-    }
-  } catch {
-    return null
-  }
-}
-
-function transformMetaAdSet(as: any) {
-  try {
-    const ads = (Array.isArray(as.ads) ? as.ads : [])
-      .map(transformMetaAd)
-      .filter((a: any): a is NonNullable<ReturnType<typeof transformMetaAd>> => a !== null)
-    return {
-      id: as.id ?? Math.random().toString(),
-      name: as.name ?? 'Unnamed ad set',
-      audience: summarizeTargeting(as.targeting),
-      status: (as.effective_status ?? as.status ?? 'unknown').toLowerCase(),
-      ...transformInsightMetrics(as.insights),
-      trend: 0,
-      ads,
-    }
-  } catch {
-    return null
-  }
-}
-
-function transformMetaCampaign(c: any) {
-  try {
-    // Meta returns budgets in the currency's minor unit (paise for INR)
-    const dailyBudget = safeFloat(c.daily_budget ?? c.lifetime_budget) / 100
-    const adSets = (Array.isArray(c.adsets) ? c.adsets : [])
-      .map(transformMetaAdSet)
-      .filter((a: any): a is NonNullable<ReturnType<typeof transformMetaAdSet>> => a !== null)
-
-    return {
-      id: c.id ?? Math.random().toString(),
-      name: c.name ?? 'Unnamed campaign',
-      platform: 'meta' as const,
-      status: (c.effective_status ?? c.status ?? 'unknown').toLowerCase(),
-      type: 'prospecting' as const,
-      dailyBudget,
-      ...transformInsightMetrics(c.insights),
-      trend: 0,
-      adSets,
-    }
-  } catch {
-    return null
-  }
-}
-
 // ─── Connected view ───────────────────────────────────────────────────────────
 function ConnectedView() {
   const { clientId } = useFilterStore()
@@ -149,7 +31,7 @@ function ConnectedView() {
   const activeAccount = currentClient?.meta.adAccounts.find((a) => a.id === currentClient?.metaAdAccountId)
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
   const [page, setPage] = useState(0)
-  const { data: rawCampaigns, loading, error } = useMetaCampaigns()
+  const { data: rawCampaigns, accountInsights, loading, error } = useMetaCampaigns()
 
   const allCampaigns = rawCampaigns
     .map(transformMetaCampaign)
@@ -159,11 +41,15 @@ function ConnectedView() {
   const paginated = filtered.slice(0, (page + 1) * PAGE_SIZE)
   const hasMore = paginated.length < filtered.length
 
-  const totalSpend = allCampaigns.reduce((s, c) => s + c.spend, 0)
-  const totalReach = allCampaigns.reduce((s, c) => s + c.reach, 0)
-  const avgRoas = allCampaigns.length ? allCampaigns.reduce((s, c) => s + c.roas, 0) / allCampaigns.length : 0
-  const avgCtr  = allCampaigns.length ? allCampaigns.reduce((s, c) => s + c.ctr,  0) / allCampaigns.length : 0
-  const avgCpa  = allCampaigns.length ? allCampaigns.reduce((s, c) => s + c.cpa,  0) / allCampaigns.length : 0
+  // Use account-level insights for KPI cards — these are the exact totals Meta
+  // shows, independent of pagination. Fall back to aggregating campaign rows
+  // only if the account-level query returned nothing.
+  const acct = accountInsights ? transformInsightMetrics(accountInsights) : null
+  const totalSpend = acct?.spend ?? allCampaigns.reduce((s, c) => s + c.spend, 0)
+  const totalReach = acct?.reach ?? allCampaigns.reduce((s, c) => s + c.reach, 0)
+  const avgRoas    = acct?.roas  ?? 0
+  const avgCtr     = acct?.ctr   ?? 0
+  const avgCpa     = acct?.cpa   ?? 0
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -187,12 +73,12 @@ function ConnectedView() {
         )}
       </div>
 
-      {/* Metrics */}
-      {loading ? (
+      {/* Metrics — keep stale data visible while refetching (dateRange change) */}
+      {loading && rawCampaigns.length === 0 ? (
         <div className="flex items-center gap-2 text-sm t3 py-8 justify-center">
           <Loader2 size={16} className="animate-spin" /> Loading live data from Meta…
         </div>
-      ) : error ? (
+      ) : error && rawCampaigns.length === 0 ? (
         <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-500">
           <AlertTriangle size={15} />
           Failed to load Meta data: {error}
@@ -210,7 +96,10 @@ function ConnectedView() {
           <div className="card p-4">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
               <div>
-                <h3 className="text-sm font-semibold t1">Campaigns <span className="text-xs font-normal t3 ml-1">({filtered.length} total)</span></h3>
+                <h3 className="text-sm font-semibold t1">
+                  Campaigns <span className="text-xs font-normal t3 ml-1">({filtered.length} total)</span>
+                  {loading && <span className="ml-2 text-xs text-blue-500 animate-pulse">Refreshing…</span>}
+                </h3>
                 <p className="text-xs t3 mt-0.5">Live · Showing {paginated.length} of {filtered.length}</p>
               </div>
               <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">

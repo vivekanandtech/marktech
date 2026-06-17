@@ -23,6 +23,6 @@ export const useFilterStore = create<FilterState>()(
       setDateRange: (dateRange) => set({ dateRange }),
       setMarket: (market) => set({ market }),
     }),
-    { name: 'marktech-filters', partialize: (s) => ({ clientId: s.clientId }) }
+    { name: 'marktech-filters', partialize: (s) => ({ clientId: s.clientId, dateRange: s.dateRange }) }
   )
 )

@@ -12,8 +12,17 @@ import { metaAuthRoutes, metaDataRoutes } from './routes/meta-auth'
 export function buildApp() {
   const app = Fastify({ logger: { level: 'info' } })
 
+  const allowedOrigins = new Set([
+    process.env.FRONTEND_URL,
+    'http://localhost:5173',
+    'http://localhost:5174',
+  ].filter(Boolean) as string[])
+
   app.register(cors, {
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:5174',
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.has(origin)) cb(null, true)
+      else cb(new Error('Not allowed by CORS'), false)
+    },
     credentials: true,
   })
 

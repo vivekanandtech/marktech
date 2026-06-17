@@ -78,14 +78,6 @@ export async function getAdAccounts(token: string): Promise<{
 
 // ─── Campaign data ────────────────────────────────────────────────────────────
 
-export async function getCampaigns(adAccountId: string, token: string) {
-  const fields = 'id,name,status,objective,daily_budget,lifetime_budget,effective_status'
-  const res = await fetch(`${GRAPH}/${adAccountId}/campaigns?fields=${fields}&access_token=${token}`)
-  const data = await res.json() as any
-  if (data.error) throw new Error(data.error.message)
-  return data.data ?? []
-}
-
 // Rolling-window lengths for each UI date range option. Meta's `date_preset`
 // values don't cover arbitrary ranges like "last 3 months", so we always
 // compute an explicit `time_range` instead.
@@ -102,7 +94,7 @@ function toTimeRange(dateRange: string): { since: string; until: string } {
   return { since: fmt(since), until: fmt(until) }
 }
 
-const BASE_INSIGHT_FIELDS = [
+export const BASE_INSIGHT_FIELDS = [
   'spend', 'impressions', 'clicks', 'reach', 'frequency',
   'purchase_roas', 'cost_per_action_type',
   'cpm', 'ctr', 'cpp', 'actions', 'action_values',
@@ -114,8 +106,27 @@ const BASE_INSIGHT_FIELDS = [
 // per campaign, which broke the campaign_id-keyed insight lookup.
 const LEVEL_FIELDS: Record<string, string[]> = {
   campaign: ['campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
-  adset: ['adset_id', 'adset_name', 'campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
-  ad: ['ad_id', 'ad_name', 'adset_id', 'adset_name', 'campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
+  adset:    ['adset_id', 'adset_name', 'campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
+  ad:       ['ad_id', 'ad_name', 'adset_id', 'adset_name', 'campaign_id', 'campaign_name', ...BASE_INSIGHT_FIELDS],
+}
+
+// Follow Meta's cursor-based pagination until all rows are fetched.
+async function fetchAllPages(url: string): Promise<any[]> {
+  const all: any[] = []
+  let next: string | null = url
+  while (next) {
+    const res = await fetch(next)
+    const data = await res.json() as any
+    if (data.error) throw new Error(data.error.message)
+    all.push(...(data.data ?? []))
+    next = data.paging?.next ?? null
+  }
+  return all
+}
+
+export async function getCampaigns(adAccountId: string, token: string) {
+  const fields = 'id,name,status,objective,daily_budget,lifetime_budget,effective_status'
+  return fetchAllPages(`${GRAPH}/${adAccountId}/campaigns?fields=${fields}&limit=200&access_token=${token}`)
 }
 
 export async function getCampaignInsights(
@@ -125,35 +136,80 @@ export async function getCampaignInsights(
   level = 'campaign'
 ) {
   const fields = (LEVEL_FIELDS[level] ?? LEVEL_FIELDS.campaign).join(',')
-
   const params = new URLSearchParams({
     fields,
     time_range: JSON.stringify(toTimeRange(dateRange)),
     level,
+    limit: '200',
     access_token: token,
   })
+  return fetchAllPages(`${GRAPH}/${adAccountId}/insights?${params}`)
+}
 
+// Single account-level insight row — gives true account totals matching what
+// Meta Ads Manager shows, regardless of how many campaigns the account has.
+export async function getAccountInsights(adAccountId: string, token: string, dateRange = '30D') {
+  const params = new URLSearchParams({
+    fields: BASE_INSIGHT_FIELDS.join(','),
+    time_range: JSON.stringify(toTimeRange(dateRange)),
+    level: 'account',
+    access_token: token,
+  })
   const res = await fetch(`${GRAPH}/${adAccountId}/insights?${params}`)
   const data = await res.json() as any
   if (data.error) throw new Error(data.error.message)
-  return data.data ?? []
+  return (data.data ?? [])[0] ?? null
 }
 
-export async function getAdSets(adAccountId: string, token: string, campaignId?: string) {
-  const fields = 'id,name,campaign_id,status,daily_budget,targeting,effective_status'
-  const filter = campaignId ? `&campaign_id=${campaignId}` : ''
-  const res = await fetch(`${GRAPH}/${adAccountId}/adsets?fields=${fields}${filter}&access_token=${token}`)
-  const data = await res.json() as any
-  if (data.error) throw new Error(data.error.message)
-  return data.data ?? []
-}
+// Fetch a single campaign's ad sets, ads, and their insights.
+// Uses the /{campaignId}/ edge so queries are scoped to that one campaign
+// — no global pagination problem regardless of account size.
+export async function getCampaignDetail(
+  campaignId: string,
+  token: string,
+  dateRange = '30D'
+): Promise<any[]> {
+  const adsetFields = 'id,name,campaign_id,status,daily_budget,targeting,effective_status'
+  const adFields    = 'id,name,status,adset_id,campaign_id,effective_status,creative{id,title,body,thumbnail_url,image_url,video_id,object_type}'
+  const insightTime = JSON.stringify(toTimeRange(dateRange))
 
-export async function getAds(adAccountId: string, token: string) {
-  const fields = 'id,name,status,adset_id,campaign_id,effective_status,creative{id,title,body,thumbnail_url,image_url,video_id,object_type}'
-  const res = await fetch(`${GRAPH}/${adAccountId}/ads?fields=${fields}&access_token=${token}`)
-  const data = await res.json() as any
-  if (data.error) throw new Error(data.error.message)
-  return data.data ?? []
+  const adsetInsightParams = new URLSearchParams({
+    fields: LEVEL_FIELDS.adset.join(','),
+    time_range: insightTime,
+    level: 'adset',
+    limit: '200',
+    access_token: token,
+  })
+  const adInsightParams = new URLSearchParams({
+    fields: LEVEL_FIELDS.ad.join(','),
+    time_range: insightTime,
+    level: 'ad',
+    limit: '200',
+    access_token: token,
+  })
+
+  const [adsets, adsetInsights, ads, adInsights] = await Promise.all([
+    fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=200&access_token=${token}`),
+    fetchAllPages(`${GRAPH}/${campaignId}/insights?${adsetInsightParams}`),
+    fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&limit=200&access_token=${token}`),
+    fetchAllPages(`${GRAPH}/${campaignId}/insights?${adInsightParams}`),
+  ])
+
+  const adsetInsightMap = new Map(adsetInsights.map((i: any) => [i.adset_id, i]))
+  const adInsightMap    = new Map(adInsights.map((i: any) => [i.ad_id, i]))
+
+  const adsByAdset = new Map<string, any[]>()
+  for (const ad of ads) {
+    const list = adsByAdset.get(ad.adset_id) ?? []
+    list.push({ ...ad, insights: adInsightMap.get(ad.id) ?? null })
+    adsByAdset.set(ad.adset_id, list)
+  }
+
+  return adsets.map((as: any) => ({
+    ...as,
+    insights: adsetInsightMap.get(as.id) ?? null,
+    ads: adsByAdset.get(as.id) ?? [],
+  }))
 }
 
 // ─── Verify a token is still valid ───────────────────────────────────────────
