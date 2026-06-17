@@ -56,6 +56,7 @@ function MetaSyncProvider() {
     fetch(`${API}/auth/meta/sessions`)
       .then((r) => r.json())
       .then(({ sessions }) => {
+        console.log('[Marktech] sessions from DB:', sessions?.length ?? 0, sessions)
         if (!sessions?.length) return
         const { adoptSession: adopt } = useClientStore.getState()
         sessions.forEach((s: any) => adopt({
@@ -73,10 +74,13 @@ function MetaSyncProvider() {
         const currentIsConnected = updated.find(c => c.id === currentId)?.meta.connected
         if (!currentIsConnected) {
           const firstConnected = updated.find(c => c.meta.connected)
-          if (firstConnected) setId(firstConnected.id)
+          if (firstConnected) {
+            console.log('[Marktech] switching clientId to connected client:', firstConnected.id)
+            setId(firstConnected.id)
+          }
         }
       })
-      .catch(() => {})
+      .catch((err) => console.warn('[Marktech] session fetch failed:', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])  // once on mount — reads store via getState() to avoid stale closure
 
