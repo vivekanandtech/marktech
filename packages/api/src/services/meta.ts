@@ -19,20 +19,39 @@ export async function dbSaveToken(clientId: string, data: {
   accessToken: string
   metaUserId: string
   adAccountIds: string[]
-  expiresAt: number  // Unix ms
+  adAccounts?: any[]        // full objects: { id, name, currency }
+  expiresAt: number         // Unix ms
 }): Promise<void> {
   const db = getPool()
   if (!db) return
   await db.query(
-    `INSERT INTO meta_tokens (client_id, access_token, meta_user_id, ad_account_ids, expires_at, updated_at)
-     VALUES ($1, $2, $3, $4, to_timestamp($5), NOW())
+    `INSERT INTO meta_tokens
+       (client_id, access_token, meta_user_id, ad_account_ids, ad_accounts_json, expires_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, to_timestamp($6), NOW())
      ON CONFLICT (client_id) DO UPDATE SET
-       access_token   = EXCLUDED.access_token,
-       meta_user_id   = EXCLUDED.meta_user_id,
-       ad_account_ids = EXCLUDED.ad_account_ids,
-       expires_at     = EXCLUDED.expires_at,
-       updated_at     = NOW()`,
-    [clientId, data.accessToken, data.metaUserId, data.adAccountIds, data.expiresAt / 1000]
+       access_token     = EXCLUDED.access_token,
+       meta_user_id     = EXCLUDED.meta_user_id,
+       ad_account_ids   = EXCLUDED.ad_account_ids,
+       ad_accounts_json = EXCLUDED.ad_accounts_json,
+       expires_at       = EXCLUDED.expires_at,
+       updated_at       = NOW()`,
+    [
+      clientId,
+      data.accessToken,
+      data.metaUserId,
+      data.adAccountIds,
+      data.adAccounts ? JSON.stringify(data.adAccounts) : null,
+      data.expiresAt / 1000,
+    ]
+  )
+}
+
+export async function dbUpdateSelectedAccount(clientId: string, adAccountId: string): Promise<void> {
+  const db = getPool()
+  if (!db) return
+  await db.query(
+    `UPDATE meta_tokens SET selected_ad_account_id = $2, updated_at = NOW() WHERE client_id = $1`,
+    [clientId, adAccountId]
   )
 }
 
@@ -40,12 +59,16 @@ export async function dbGetToken(clientId: string): Promise<{
   accessToken: string
   metaUserId: string
   adAccountIds: string[]
+  adAccounts: any[]
+  selectedAdAccountId: string | null
   expiresAt: number
 } | null> {
   const db = getPool()
   if (!db) return null
   const result = await db.query(
-    `SELECT access_token, meta_user_id, ad_account_ids, extract(epoch from expires_at) * 1000 AS expires_ms
+    `SELECT access_token, meta_user_id, ad_account_ids, ad_accounts_json,
+            selected_ad_account_id,
+            extract(epoch from expires_at) * 1000 AS expires_ms
      FROM meta_tokens
      WHERE client_id = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
     [clientId]
@@ -53,11 +76,41 @@ export async function dbGetToken(clientId: string): Promise<{
   if (!result.rows[0]) return null
   const row = result.rows[0]
   return {
-    accessToken:   row.access_token,
-    metaUserId:    row.meta_user_id,
-    adAccountIds:  row.ad_account_ids ?? [],
-    expiresAt:     Number(row.expires_ms),
+    accessToken:           row.access_token,
+    metaUserId:            row.meta_user_id,
+    adAccountIds:          row.ad_account_ids ?? [],
+    adAccounts:            row.ad_accounts_json ?? [],
+    selectedAdAccountId:   row.selected_ad_account_id ?? null,
+    expiresAt:             Number(row.expires_ms),
   }
+}
+
+export async function dbGetAllSessions(): Promise<Array<{
+  clientId: string
+  metaUserId: string
+  adAccounts: any[]
+  adAccountIds: string[]
+  selectedAdAccountId: string | null
+  expiresAt: number
+}>> {
+  const db = getPool()
+  if (!db) return []
+  const result = await db.query(
+    `SELECT client_id, meta_user_id, ad_accounts_json, ad_account_ids,
+            selected_ad_account_id,
+            extract(epoch from expires_at) * 1000 AS expires_ms
+     FROM meta_tokens
+     WHERE expires_at IS NULL OR expires_at > NOW()
+     ORDER BY updated_at DESC`
+  )
+  return result.rows.map((row) => ({
+    clientId:             row.client_id,
+    metaUserId:           row.meta_user_id,
+    adAccounts:           row.ad_accounts_json ?? [],
+    adAccountIds:         row.ad_account_ids ?? [],
+    selectedAdAccountId:  row.selected_ad_account_id ?? null,
+    expiresAt:            Number(row.expires_ms),
+  }))
 }
 
 // ─── OAuth helpers ────────────────────────────────────────────────────────────

@@ -29,14 +29,19 @@ export async function initDb(): Promise<void> {
   try {
     await db.query(`
       CREATE TABLE IF NOT EXISTS meta_tokens (
-        client_id       TEXT PRIMARY KEY,
-        access_token    TEXT NOT NULL,
-        meta_user_id    TEXT,
-        ad_account_ids  TEXT[],
-        expires_at      TIMESTAMPTZ,
-        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        client_id               TEXT PRIMARY KEY,
+        access_token            TEXT NOT NULL,
+        meta_user_id            TEXT,
+        ad_account_ids          TEXT[],
+        ad_accounts_json        JSONB,
+        selected_ad_account_id  TEXT,
+        expires_at              TIMESTAMPTZ,
+        updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `)
+    // Add columns that may be missing on existing tables
+    await db.query(`ALTER TABLE meta_tokens ADD COLUMN IF NOT EXISTS ad_accounts_json       JSONB`)
+    await db.query(`ALTER TABLE meta_tokens ADD COLUMN IF NOT EXISTS selected_ad_account_id TEXT`)
     console.log('[db] Connected and ready')
   } catch (err) {
     console.error('[db] Failed to initialise:', err)

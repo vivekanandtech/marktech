@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { LoginPage } from '@/pages/LoginPage'
@@ -27,7 +27,11 @@ export function syncMetaStatus(clientId: string) {
     .then((r) => r.json())
     .then((data) => {
       if (data.connected) {
-        setMetaConnected(clientId, { metaUserId: data.metaUserId, adAccounts: data.adAccounts, expiresAt: data.expiresAt })
+        setMetaConnected(clientId, {
+          metaUserId: data.metaUserId,
+          adAccounts: data.adAccounts,
+          expiresAt: data.expiresAt,
+        })
       } else {
         setMetaDisconnected(clientId)
       }
@@ -37,10 +41,30 @@ export function syncMetaStatus(clientId: string) {
 
 function MetaSyncProvider() {
   const { clientId, setClientId } = useFilterStore()
-  const { clients } = useClientStore()
+  const { clients, adoptSession } = useClientStore()
   const currentClient = clients.find((c) => c.id === clientId)
   const connected = currentClient?.meta.connected ?? false
   const accessToken = currentClient?.meta.accessToken ?? null
+  const metaAdAccountId = currentClient?.metaAdAccountId ?? null
+  const prevAdAccountId = useRef<string | null>(null)
+
+  // New browser with no local clients — discover sessions from the server
+  useEffect(() => {
+    if (clients.length > 0) return
+    fetch(`${API}/auth/meta/sessions`)
+      .then((r) => r.json())
+      .then(({ sessions }) => {
+        if (!sessions?.length) return
+        sessions.forEach((s: any) => adoptSession({
+          clientId: s.clientId,
+          metaUserId: s.metaUserId,
+          adAccounts: s.adAccounts,
+          selectedAdAccountId: s.selectedAdAccountId,
+          expiresAt: new Date(s.expiresAt).toISOString(),
+        }))
+      })
+      .catch(() => {})
+  }, [clients.length, adoptSession])
 
   // Auto-select first client if none selected or stored id no longer exists
   useEffect(() => {
@@ -49,16 +73,24 @@ function MetaSyncProvider() {
     if (!valid) setClientId(clients[0].id)
   }, [clients, clientId, setClientId])
 
-  // Each client's Meta access token lives in browser localStorage (stateless
-  // backend). Only fall back to /auth/meta/status when we have no local
-  // connection for this client — the server's in-memory tokenStore gets
-  // wiped on every Render restart, so trusting it over a valid local
-  // connection would wrongly disconnect us.
+  // Fall back to /auth/meta/status if not connected locally
   useEffect(() => {
     if (!connected && !accessToken && clientId) {
       syncMetaStatus(clientId)
     }
   }, [clientId, connected, accessToken])
+
+  // Persist ad account selection to DB so other browsers pick it up
+  useEffect(() => {
+    if (!clientId || !metaAdAccountId) return
+    if (metaAdAccountId === prevAdAccountId.current) return
+    prevAdAccountId.current = metaAdAccountId
+    fetch(`${API}/auth/meta/select-account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId, adAccountId: metaAdAccountId }),
+    }).catch(() => {})
+  }, [clientId, metaAdAccountId])
 
   return null
 }

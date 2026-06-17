@@ -68,6 +68,13 @@ interface ClientStore {
   setMetaDisconnected: (clientId: string) => void
   setEnabledAdAccountIds: (clientId: string, ids: string[]) => void
   reopenAdAccountSelector: (clientId: string) => void
+  adoptSession: (session: {
+    clientId: string
+    metaUserId: string
+    adAccounts: AdAccount[]
+    selectedAdAccountId: string | null
+    expiresAt: string
+  }) => void
 }
 
 export const useClientStore = create<ClientStore>()(
@@ -169,6 +176,65 @@ export const useClientStore = create<ClientStore>()(
             c.id === clientId ? { ...c, meta: { ...c.meta, enabledAdAccountIds: null } } : c
           ),
         }),
+
+      // Adopt a session discovered from the server — used when a new browser
+      // has no local clients but the DB has an active Meta connection.
+      adoptSession: (session: {
+        clientId: string
+        metaUserId: string
+        adAccounts: AdAccount[]
+        selectedAdAccountId: string | null
+        expiresAt: string
+      }) => {
+        const existing = get().clients.find((c) => c.id === session.clientId)
+        if (existing) {
+          // Client already exists — just ensure meta connection is set
+          set({
+            clients: get().clients.map((c) => {
+              if (c.id !== session.clientId) return c
+              const metaAdAccountId = session.selectedAdAccountId ?? c.metaAdAccountId
+              const enabledIds = session.selectedAdAccountId
+                ? [session.selectedAdAccountId]
+                : c.meta.enabledAdAccountIds
+              return {
+                ...c,
+                metaAdAccountId,
+                meta: {
+                  connected: true,
+                  metaUserId: session.metaUserId,
+                  accessToken: null,  // backend DB lookup handles this
+                  adAccounts: session.adAccounts,
+                  enabledAdAccountIds: enabledIds,
+                  expiresAt: session.expiresAt,
+                },
+              }
+            }),
+          })
+        } else {
+          // New browser — create a client entry using the server's clientId
+          const firstName = session.adAccounts[0]?.name ?? 'Client'
+          const client: Client = {
+            id: session.clientId,  // must match DB key for token lookup
+            name: firstName,
+            industry: 'Other',
+            logoInitials: initials(firstName),
+            logoColor: pickColor(firstName),
+            createdAt: new Date().toISOString(),
+            metaAdAccountId: session.selectedAdAccountId,
+            meta: {
+              connected: true,
+              metaUserId: session.metaUserId,
+              accessToken: null,  // backend handles token via DB
+              adAccounts: session.adAccounts,
+              enabledAdAccountIds: session.selectedAdAccountId
+                ? [session.selectedAdAccountId]
+                : null,
+              expiresAt: session.expiresAt,
+            },
+          }
+          set({ clients: [...get().clients, client] })
+        }
+      },
     }),
     {
       name: 'marktech-clients',

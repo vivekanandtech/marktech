@@ -3,7 +3,7 @@ import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
   getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail,
-  dbSaveToken, dbGetToken,
+  dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions,
 } from '../services/meta'
 
 export async function metaAuthRoutes(app: FastifyInstance) {
@@ -51,7 +51,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
         tokenStore.set(clientId, tokenData)
 
         // Write to DB so any server instance / user can pick it up
-        await dbSaveToken(clientId, tokenData).catch((err) =>
+        await dbSaveToken(clientId, { ...tokenData, adAccounts }).catch((err) =>
           app.log.error({ err: err.message }, 'Failed to persist Meta token to DB')
         )
 
@@ -76,10 +76,22 @@ export async function metaAuthRoutes(app: FastifyInstance) {
     }
   )
 
-  // Get connection status for a client
+  // Get connection status for a client — checks memory then DB
   app.get<{ Querystring: { clientId?: string } }>('/meta/status', async (request) => {
     const clientId = request.query.clientId ?? 'default'
-    const stored = tokenStore.get(clientId)
+
+    // 1. Try in-memory store
+    let stored = tokenStore.get(clientId)
+
+    // 2. Fall back to DB (covers restarts and cross-device logins)
+    if (!stored) {
+      const row = await dbGetToken(clientId)
+      if (row) {
+        stored = row
+        tokenStore.set(clientId, row)  // warm cache
+      }
+    }
+
     if (!stored) return { connected: false }
 
     const valid = await verifyToken(stored.accessToken)
@@ -88,19 +100,38 @@ export async function metaAuthRoutes(app: FastifyInstance) {
       return { connected: false, reason: 'token_expired' }
     }
 
-    const adAccounts = await getAdAccounts(stored.accessToken)
+    // Use cached ad accounts from DB to avoid an extra Meta API call
+    const dbRow = await dbGetToken(clientId)
+    const adAccounts = dbRow?.adAccounts?.length
+      ? dbRow.adAccounts
+      : await getAdAccounts(stored.accessToken)
+
     return {
       connected: true,
       metaUserId: stored.metaUserId,
-      adAccounts: adAccounts.map((a: any) => ({
-        id: a.id,
-        name: a.name,
-        currency: a.currency,
-        business: a.business ? { id: a.business.id, name: a.business.name } : null,
-      })),
+      adAccounts,
+      selectedAdAccountId: dbRow?.selectedAdAccountId ?? null,
       expiresAt: new Date(stored.expiresAt).toISOString(),
     }
   })
+
+  // Return all active Meta sessions — used by new browsers to auto-populate
+  // the client store without requiring re-authentication.
+  app.get('/meta/sessions', async () => {
+    const sessions = await dbGetAllSessions()
+    return { sessions }
+  })
+
+  // Save which ad account the user selected — keeps new browsers in sync
+  app.post<{ Body: { clientId: string; adAccountId: string } }>(
+    '/meta/select-account',
+    async (request, reply) => {
+      const { clientId, adAccountId } = request.body
+      if (!clientId || !adAccountId) return reply.code(400).send({ error: 'clientId and adAccountId required' })
+      await dbUpdateSelectedAccount(clientId, adAccountId)
+      return { ok: true }
+    }
+  )
 
   // Disconnect (revoke)
   app.delete<{ Querystring: { clientId?: string } }>('/meta/disconnect', async (request) => {
