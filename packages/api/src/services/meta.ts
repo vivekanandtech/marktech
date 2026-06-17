@@ -310,11 +310,12 @@ export async function getCampaignDetail(
   }))
 }
 
-// Top ads for the Creatives page — fetches active/paused ads with inline 30-day
-// insights and creative assets, sorted by spend desc.
+// Top ads for the Creatives page — fetches ads with inline 30-day insights and
+// creative assets, sorted by spend desc. Filtering is done client-side to avoid
+// Meta API rejecting the `filtering` param on certain account types.
 export async function getTopAds(adAccountId: string, token: string, limit = 50): Promise<any[]> {
   const insightFields = [
-    'spend', 'impressions', 'clicks', 'purchase_roas',
+    'spend', 'impressions', 'clicks', 'reach', 'purchase_roas',
     'ctr', 'cpm', 'frequency', 'actions', 'action_values',
   ].join(',')
   const creativeFields = 'id,title,body,thumbnail_url,image_url,video_id,object_type'
@@ -323,16 +324,17 @@ export async function getTopAds(adAccountId: string, token: string, limit = 50):
     `creative{${creativeFields}}`,
     `insights.date_preset(last_30_days){${insightFields}}`,
   ].join(',')
-  const filtering = JSON.stringify([
-    { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] },
-  ])
-  const params = new URLSearchParams({ fields, filtering, limit: String(limit), access_token: token })
+  const params = new URLSearchParams({ fields, limit: String(Math.min(limit, 200)), access_token: token })
   const ads = await fetchAllPages(`${GRAPH}/${adAccountId}/ads?${params}`)
-  return ads.sort((a, b) => {
-    const sA = parseFloat(a.insights?.data?.[0]?.spend ?? '0')
-    const sB = parseFloat(b.insights?.data?.[0]?.spend ?? '0')
-    return sB - sA
-  })
+  const KEEP = new Set(['active', 'paused', 'ACTIVE', 'PAUSED'])
+  return ads
+    .filter((a) => KEEP.has(a.effective_status ?? a.status ?? ''))
+    .sort((a, b) => {
+      const sA = parseFloat(a.insights?.data?.[0]?.spend ?? '0')
+      const sB = parseFloat(b.insights?.data?.[0]?.spend ?? '0')
+      return sB - sA
+    })
+    .slice(0, limit)
 }
 
 // ─── Verify a token is still valid ───────────────────────────────────────────

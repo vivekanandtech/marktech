@@ -227,11 +227,16 @@ export async function metaDataRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { clientId?: string; adAccountId: string; limit?: string } }>(
     '/top-ads',
     async (request, reply) => {
-      const { clientId = 'default', adAccountId, limit = '100' } = request.query
+      const { clientId = 'default', adAccountId, limit = '50' } = request.query
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
-      const ads = await getTopAds(adAccountId, token, Number(limit))
-      return { data: ads, source: 'meta_api' }
+      try {
+        const ads = await getTopAds(adAccountId, token, Number(limit))
+        return { data: ads, source: 'meta_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, adAccountId }, 'getTopAds failed')
+        return reply.code(500).send({ error: err.message ?? 'Failed to fetch creatives' })
+      }
     }
   )
 
