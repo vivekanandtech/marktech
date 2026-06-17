@@ -322,7 +322,7 @@ export async function getTopAds(adAccountId: string, token: string, limit = 50):
   const fields = [
     'id', 'name', 'status', 'effective_status',
     `creative{${creativeFields}}`,
-    `insights.date_preset(last_30_days){${insightFields}}`,
+    `insights.date_preset(last_30d){${insightFields}}`,
   ].join(',')
   const params = new URLSearchParams({ fields, limit: String(Math.min(limit, 200)), access_token: token })
   const ads = await fetchAllPages(`${GRAPH}/${adAccountId}/ads?${params}`)
