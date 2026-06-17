@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
+
 import { API } from '@/lib/api'
 import { useAuthStore } from '@/store/authStore'
 
@@ -77,6 +78,42 @@ export function useMetaCampaigns() {
   }, [clientId, connected, selectedAdAccountId, accessToken, dateRange])
 
   return { data, accountInsights, loading, error }
+}
+
+// Top ads with creative info — used by the Creatives page.
+export function useMetaCreatives() {
+  const { clientId } = useFilterStore()
+  const { clients } = useClientStore()
+  const currentClient = clients.find((c) => c.id === clientId)
+  const { connected, accessToken } = currentClient?.meta ?? { connected: false, accessToken: null }
+  const selectedAdAccountId = currentClient?.metaAdAccountId ?? null
+
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!connected || !selectedAdAccountId) return
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+    metaFetch(
+      `/api/meta/top-ads?clientId=${clientId}&adAccountId=${selectedAdAccountId}&limit=100`,
+      accessToken,
+      controller.signal
+    )
+      .then(async (r) => {
+        if (controller.signal.aborted) return
+        const json = await r.json()
+        if (json.error) { setError(json.error); return }
+        setData(json.data ?? [])
+      })
+      .catch((e) => { if (e.name !== 'AbortError') setError(e.message) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [clientId, connected, selectedAdAccountId, accessToken])
+
+  return { data, loading, error }
 }
 
 // Lazy-loads ad sets + ads for a single campaign when its row is expanded.

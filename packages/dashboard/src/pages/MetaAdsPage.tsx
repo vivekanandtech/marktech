@@ -3,7 +3,7 @@ import { Eye, MousePointer, DollarSign, TrendingUp, Layers, Loader2, AlertTriang
 import clsx from 'clsx'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '@/components/ui/MetricCard'
-import { CampaignTable } from '@/components/campaigns/CampaignTable'
+import { CampaignTable, SortKey, SortDir } from '@/components/campaigns/CampaignTable'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
@@ -30,6 +30,8 @@ function ConnectedView() {
   const currentClient = clients.find((c) => c.id === clientId)
   const activeAccount = currentClient?.meta.adAccounts.find((a) => a.id === currentClient?.metaAdAccountId)
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
+  const [sortKey, setSortKey] = useState<SortKey>('spend')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(0)
   const { data: rawCampaigns, accountInsights, loading, error } = useMetaCampaigns()
 
@@ -37,7 +39,17 @@ function ConnectedView() {
     .map(transformMetaCampaign)
     .filter((c): c is NonNullable<ReturnType<typeof transformMetaCampaign>> => c !== null)
 
-  const filtered = allCampaigns.filter((c) => typeFilter === 'all' || c.status === typeFilter)
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
+    else { setSortKey(key); setSortDir('desc') }
+    setPage(0)
+  }
+
+  const sorted = [...allCampaigns].sort((a, b) => {
+    const mul = sortDir === 'desc' ? -1 : 1
+    return mul * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0))
+  })
+  const filtered = sorted.filter((c) => typeFilter === 'all' || c.status === typeFilter)
   const paginated = filtered.slice(0, (page + 1) * PAGE_SIZE)
   const hasMore = paginated.length < filtered.length
 
@@ -118,7 +130,13 @@ function ConnectedView() {
               </div>
             </div>
             <ErrorBoundary label="Error rendering campaigns">
-              <CampaignTable campaigns={paginated} emptyMessage="No campaigns match this filter" />
+              <CampaignTable
+                campaigns={paginated}
+                emptyMessage="No campaigns match this filter"
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
             </ErrorBoundary>
             {hasMore && (
               <button

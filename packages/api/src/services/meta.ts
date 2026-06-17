@@ -310,6 +310,31 @@ export async function getCampaignDetail(
   }))
 }
 
+// Top ads for the Creatives page — fetches active/paused ads with inline 30-day
+// insights and creative assets, sorted by spend desc.
+export async function getTopAds(adAccountId: string, token: string, limit = 50): Promise<any[]> {
+  const insightFields = [
+    'spend', 'impressions', 'clicks', 'purchase_roas',
+    'ctr', 'cpm', 'frequency', 'actions', 'action_values',
+  ].join(',')
+  const creativeFields = 'id,title,body,thumbnail_url,image_url,video_id,object_type'
+  const fields = [
+    'id', 'name', 'status', 'effective_status',
+    `creative{${creativeFields}}`,
+    `insights.date_preset(last_30_days){${insightFields}}`,
+  ].join(',')
+  const filtering = JSON.stringify([
+    { field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] },
+  ])
+  const params = new URLSearchParams({ fields, filtering, limit: String(limit), access_token: token })
+  const ads = await fetchAllPages(`${GRAPH}/${adAccountId}/ads?${params}`)
+  return ads.sort((a, b) => {
+    const sA = parseFloat(a.insights?.data?.[0]?.spend ?? '0')
+    const sB = parseFloat(b.insights?.data?.[0]?.spend ?? '0')
+    return sB - sA
+  })
+}
+
 // ─── Verify a token is still valid ───────────────────────────────────────────
 
 export async function verifyToken(token: string): Promise<boolean> {

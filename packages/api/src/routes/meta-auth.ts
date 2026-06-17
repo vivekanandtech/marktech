@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
-  getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail,
+  getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail, getTopAds,
   dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions,
 } from '../services/meta'
 
@@ -218,6 +218,20 @@ export async function metaDataRoutes(app: FastifyInstance) {
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       const adSets = await getCampaignDetail(campaignId, token, dateRange)
       return { adSets, source: 'meta_api' }
+    }
+  )
+
+  // Top ads with creative assets — used by the Creatives page.
+  // Uses a fixed 30-day window via Meta's date_preset so creative ROAS/spend
+  // reflects real recent performance.
+  app.get<{ Querystring: { clientId?: string; adAccountId: string; limit?: string } }>(
+    '/top-ads',
+    async (request, reply) => {
+      const { clientId = 'default', adAccountId, limit = '100' } = request.query
+      const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
+      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      const ads = await getTopAds(adAccountId, token, Number(limit))
+      return { data: ads, source: 'meta_api' }
     }
   )
 
