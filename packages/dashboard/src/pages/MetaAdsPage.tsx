@@ -58,9 +58,6 @@ function ConnectedView() {
 
   const sorted = [...allCampaigns].sort((a, b) => {
     const mul = sortDir === 'desc' ? -1 : 1
-    if (sortKey === 'actionTag') {
-      return mul * ((TAG_ORDER[a.actionTag ?? ''] ?? 3) - (TAG_ORDER[b.actionTag ?? ''] ?? 3))
-    }
     return mul * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0))
   })
   const filtered = sorted.filter((c) =>

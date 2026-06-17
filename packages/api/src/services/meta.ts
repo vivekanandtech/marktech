@@ -91,13 +91,14 @@ export async function dbGetAllSessions(): Promise<Array<{
   adAccounts: any[]
   adAccountIds: string[]
   selectedAdAccountId: string | null
+  accessToken: string
   expiresAt: number
 }>> {
   const db = getPool()
   if (!db) return []
   const result = await db.query(
     `SELECT client_id, meta_user_id, ad_accounts_json, ad_account_ids,
-            selected_ad_account_id,
+            selected_ad_account_id, access_token,
             extract(epoch from expires_at) * 1000 AS expires_ms
      FROM meta_tokens
      WHERE expires_at IS NULL OR expires_at > NOW()
@@ -109,6 +110,7 @@ export async function dbGetAllSessions(): Promise<Array<{
     adAccounts:           row.ad_accounts_json ?? [],
     adAccountIds:         row.ad_account_ids ?? [],
     selectedAdAccountId:  row.selected_ad_account_id ?? null,
+    accessToken:          row.access_token,
     expiresAt:            Number(row.expires_ms),
   }))
 }

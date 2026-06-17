@@ -1,7 +1,7 @@
 import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { CampaignRow } from './CampaignRow'
 
-export type SortKey = 'spend' | 'roas' | 'ctr' | 'cpa' | 'impressions' | 'clicks' | 'actionTag'
+export type SortKey = 'spend' | 'roas' | 'ctr' | 'cpa' | 'impressions' | 'clicks'
 export type SortDir = 'asc' | 'desc'
 
 interface Campaign {
@@ -23,7 +23,7 @@ const COLUMNS: { label: string; key?: SortKey; className: string }[] = [
   { label: 'ROAS',        key: 'roas',        className: 'text-right' },
   { label: 'CTR',         key: 'ctr',         className: 'text-right' },
   { label: 'CPA',         key: 'cpa',         className: 'text-right' },
-  { label: 'Rec.',        key: 'actionTag',   className: 'text-right' },
+  { label: 'Trend',                           className: 'text-right' },
 ]
 
 export function CampaignTable({

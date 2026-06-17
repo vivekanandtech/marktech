@@ -56,7 +56,6 @@ function MetaSyncProvider() {
     fetch(`${API}/auth/meta/sessions`)
       .then((r) => r.json())
       .then(({ sessions }) => {
-        console.log('[Marktech] sessions from DB:', sessions?.length ?? 0, sessions)
         if (!sessions?.length) return
         const { adoptSession: adopt } = useClientStore.getState()
         sessions.forEach((s: any) => adopt({
@@ -64,19 +63,27 @@ function MetaSyncProvider() {
           metaUserId: s.metaUserId,
           adAccounts: s.adAccounts,
           selectedAdAccountId: s.selectedAdAccountId,
+          accessToken: s.accessToken,
           expiresAt: new Date(s.expiresAt).toISOString(),
         }))
-        // After adoption, make sure filterStore points to a connected client.
-        // Machine B may have a stale clientId (e.g. 'c1' demo) in localStorage
-        // that doesn't match the newly adopted real client — override it.
+
+        // After adoption, force filterStore to the connected client and save the
+        // auto-picked ad account back to DB so every browser uses the same account.
         const { clients: updated } = useClientStore.getState()
         const { clientId: currentId, setClientId: setId } = useFilterStore.getState()
         const currentIsConnected = updated.find(c => c.id === currentId)?.meta.connected
         if (!currentIsConnected) {
           const firstConnected = updated.find(c => c.meta.connected)
           if (firstConnected) {
-            console.log('[Marktech] switching clientId to connected client:', firstConnected.id)
             setId(firstConnected.id)
+            // Persist the auto-picked ad account so other browsers get the same one
+            if (firstConnected.metaAdAccountId) {
+              fetch(`${API}/auth/meta/select-account`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId: firstConnected.id, adAccountId: firstConnected.metaAdAccountId }),
+              }).catch(() => {})
+            }
           }
         }
       })

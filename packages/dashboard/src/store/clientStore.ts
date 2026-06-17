@@ -73,6 +73,7 @@ interface ClientStore {
     metaUserId: string
     adAccounts: AdAccount[]
     selectedAdAccountId: string | null
+    accessToken: string
     expiresAt: string
   }) => void
 }
@@ -184,6 +185,7 @@ export const useClientStore = create<ClientStore>()(
         metaUserId: string
         adAccounts: AdAccount[]
         selectedAdAccountId: string | null
+        accessToken: string
         expiresAt: string
       }) => {
         const existing = get().clients.find((c) => c.id === session.clientId)
@@ -206,7 +208,7 @@ export const useClientStore = create<ClientStore>()(
                 meta: {
                   connected: true,
                   metaUserId: session.metaUserId,
-                  accessToken: null,  // backend DB lookup handles this
+                  accessToken: session.accessToken,
                   adAccounts: session.adAccounts,
                   enabledAdAccountIds: enabledIds,
                   expiresAt: session.expiresAt,
@@ -231,7 +233,7 @@ export const useClientStore = create<ClientStore>()(
             meta: {
               connected: true,
               metaUserId: session.metaUserId,
-              accessToken: null,  // backend handles token via DB
+              accessToken: session.accessToken,
               adAccounts: session.adAccounts,
               enabledAdAccountIds: pickedId ? [pickedId] : null,
               expiresAt: session.expiresAt,
