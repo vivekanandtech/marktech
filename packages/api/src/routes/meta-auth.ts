@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify'
 import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
-  getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail, getTopAds,
+  getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail, getTopAds, getDailyInsights,
   dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions,
 } from '../services/meta'
 
@@ -216,18 +216,22 @@ export async function metaDataRoutes(app: FastifyInstance) {
       const { clientId = 'default', campaignId, dateRange = '30D' } = request.query
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
-      const adSets = await getCampaignDetail(campaignId, token, dateRange)
-      return { adSets, source: 'meta_api' }
+      try {
+        const adSets = await getCampaignDetail(campaignId, token, dateRange)
+        return { adSets, source: 'meta_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, campaignId }, 'getCampaignDetail failed')
+        return reply.code(500).send({ error: err.message ?? 'Failed to load campaign detail' })
+      }
     }
   )
 
   // Top ads with creative assets — used by the Creatives page.
-  // Uses a fixed 30-day window via Meta's date_preset so creative ROAS/spend
-  // reflects real recent performance.
+  // 2-step: insights endpoint for metrics, batch-fetch for creative details.
   app.get<{ Querystring: { clientId?: string; adAccountId: string; limit?: string } }>(
     '/top-ads',
     async (request, reply) => {
-      const { clientId = 'default', adAccountId, limit = '50' } = request.query
+      const { clientId = 'default', adAccountId, limit = '25' } = request.query
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       try {
@@ -236,6 +240,23 @@ export async function metaDataRoutes(app: FastifyInstance) {
       } catch (err: any) {
         app.log.error({ err: err.message, adAccountId }, 'getTopAds failed')
         return reply.code(500).send({ error: err.message ?? 'Failed to fetch creatives' })
+      }
+    }
+  )
+
+  // Daily time-series insights — used by the Overview charts.
+  app.get<{ Querystring: { clientId?: string; adAccountId: string; dateRange?: string } }>(
+    '/daily-insights',
+    async (request, reply) => {
+      const { clientId = 'default', adAccountId, dateRange = '30D' } = request.query
+      const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
+      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      try {
+        const rows = await getDailyInsights(adAccountId, token, dateRange)
+        return { data: rows, source: 'meta_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, adAccountId }, 'getDailyInsights failed')
+        return reply.code(500).send({ error: err.message ?? 'Failed to fetch daily insights' })
       }
     }
   )

@@ -13,6 +13,7 @@ import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/f
 import { transformInsightMetrics, transformMetaCampaign } from '@/lib/meta-transform'
 
 type CampaignFilter = 'all' | 'active' | 'paused' | 'archived'
+type ActionTagFilter = 'all' | 'scale' | 'watch' | 'optimise'
 
 const CAMPAIGN_FILTERS: { value: CampaignFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -20,6 +21,15 @@ const CAMPAIGN_FILTERS: { value: CampaignFilter; label: string }[] = [
   { value: 'paused', label: 'Paused' },
   { value: 'archived', label: 'Archived' },
 ]
+
+const ACTION_TAG_FILTERS: { value: ActionTagFilter; label: string; activeClass: string }[] = [
+  { value: 'all',      label: 'All',      activeClass: 'bg-slate-600 text-white' },
+  { value: 'scale',    label: '↑ Scale',    activeClass: 'bg-emerald-500 text-white' },
+  { value: 'watch',    label: '◎ Watch',    activeClass: 'bg-amber-500 text-white' },
+  { value: 'optimise', label: '⚙ Optimise', activeClass: 'bg-blue-500 text-white' },
+]
+
+const TAG_ORDER: Record<string, number> = { scale: 0, watch: 1, optimise: 2 }
 
 const PAGE_SIZE = 20
 
@@ -30,6 +40,7 @@ function ConnectedView() {
   const currentClient = clients.find((c) => c.id === clientId)
   const activeAccount = currentClient?.meta.adAccounts.find((a) => a.id === currentClient?.metaAdAccountId)
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
+  const [tagFilter, setTagFilter] = useState<ActionTagFilter>('all')
   const [sortKey, setSortKey] = useState<SortKey>('spend')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(0)
@@ -47,9 +58,15 @@ function ConnectedView() {
 
   const sorted = [...allCampaigns].sort((a, b) => {
     const mul = sortDir === 'desc' ? -1 : 1
+    if (sortKey === 'actionTag') {
+      return mul * ((TAG_ORDER[a.actionTag ?? ''] ?? 3) - (TAG_ORDER[b.actionTag ?? ''] ?? 3))
+    }
     return mul * ((a[sortKey] ?? 0) - (b[sortKey] ?? 0))
   })
-  const filtered = sorted.filter((c) => typeFilter === 'all' || c.status === typeFilter)
+  const filtered = sorted.filter((c) =>
+    (typeFilter === 'all' || c.status === typeFilter) &&
+    (tagFilter === 'all' || c.actionTag === tagFilter)
+  )
   const paginated = filtered.slice(0, (page + 1) * PAGE_SIZE)
   const hasMore = paginated.length < filtered.length
 
@@ -114,19 +131,37 @@ function ConnectedView() {
                 </h3>
                 <p className="text-xs t3 mt-0.5">Live · Showing {paginated.length} of {filtered.length}</p>
               </div>
-              <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
-                {CAMPAIGN_FILTERS.map((f) => (
-                  <button
-                    key={f.value}
-                    onClick={() => setTypeFilter(f.value)}
-                    className={clsx(
-                      'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
-                      typeFilter === f.value ? 'bg-blue-600 text-white shadow-sm' : 't2 hover:t1'
-                    )}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Status filter */}
+                <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
+                  {CAMPAIGN_FILTERS.map((f) => (
+                    <button
+                      key={f.value}
+                      onClick={() => { setTypeFilter(f.value); setPage(0) }}
+                      className={clsx(
+                        'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
+                        typeFilter === f.value ? 'bg-blue-600 text-white shadow-sm' : 't2 hover:t1'
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Recommendation filter */}
+                <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
+                  {ACTION_TAG_FILTERS.map((f) => (
+                    <button
+                      key={f.value}
+                      onClick={() => { setTagFilter(f.value); setPage(0) }}
+                      className={clsx(
+                        'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
+                        tagFilter === f.value ? f.activeClass + ' shadow-sm' : 't2 hover:t1'
+                      )}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <ErrorBoundary label="Error rendering campaigns">
@@ -157,12 +192,14 @@ function ConnectedView() {
 function MockView() {
   const { clientId, market } = useFilterStore()
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
+  const [tagFilter, setTagFilter] = useState<ActionTagFilter>('all')
 
   const metrics = getSummaryMetrics(clientId, market)
   const allMetaCampaigns = getCampaigns(clientId, 'meta', market)
-  const campaigns = typeFilter === 'all'
-    ? allMetaCampaigns
-    : allMetaCampaigns.filter((c) => c.status === typeFilter)
+  const campaigns = allMetaCampaigns.filter((c) =>
+    (typeFilter === 'all' || c.status === typeFilter) &&
+    (tagFilter === 'all' || c.actionTag === tagFilter)
+  )
 
   const totalSpend = allMetaCampaigns.reduce((s, c) => s + c.spend, 0)
   const totalReach = allMetaCampaigns.reduce((s, c) => s + c.reach, 0)
@@ -211,19 +248,35 @@ function MockView() {
             <h3 className="text-sm font-semibold t1">Campaigns <span className="text-xs font-normal t3 ml-1 bg-amber-500/15 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded">demo</span></h3>
             <p className="text-xs t3 mt-0.5">Click any row to expand Ad Sets → Ads</p>
           </div>
-          <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
-            {CAMPAIGN_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                onClick={() => setTypeFilter(f.value)}
-                className={clsx(
-                  'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
-                  typeFilter === f.value ? 'bg-blue-600 text-white shadow-sm' : 't2 hover:t1'
-                )}
-              >
-                {f.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
+              {CAMPAIGN_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  onClick={() => setTypeFilter(f.value)}
+                  className={clsx(
+                    'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
+                    typeFilter === f.value ? 'bg-blue-600 text-white shadow-sm' : 't2 hover:t1'
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
+              {ACTION_TAG_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  onClick={() => setTagFilter(f.value)}
+                  className={clsx(
+                    'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
+                    tagFilter === f.value ? f.activeClass + ' shadow-sm' : 't2 hover:t1'
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <CampaignTable campaigns={campaigns} emptyMessage="No Meta campaigns match the current filters" />

@@ -1,16 +1,29 @@
-import { TrendingUp, TrendingDown, AlertTriangle, Star, ExternalLink } from 'lucide-react'
+import { useState } from 'react'
+import { TrendingUp, TrendingDown, AlertTriangle, Star, ExternalLink, Image, Film, LayoutGrid } from 'lucide-react'
 import clsx from 'clsx'
 import { formatCurrency, formatRoas, formatPercent } from '@/lib/formatters'
 import { FormatBadge } from '@/components/ui/Badge'
 
 interface Creative {
-  id: string; name: string; format: string; thumbnailUrl: string
+  id: string; name: string; format: string; thumbnailUrl: string; previewUrl?: string
   spend: number; roas: number; ctr: number; cpa: number
   frequency: number; trend: number; isTopPerformer: boolean; fatigueRisk: boolean
 }
 
+function ThumbnailPlaceholder({ format }: { format: string }) {
+  const Icon = format === 'video' ? Film : format === 'carousel' ? LayoutGrid : Image
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-surface-2">
+      <Icon size={28} className="t3 opacity-40" />
+      <span className="text-[10px] t3 opacity-50">No preview</span>
+    </div>
+  )
+}
+
 export function CreativeCard({ creative }: { creative: Creative }) {
+  const [imgFailed, setImgFailed] = useState(false)
   const trendPositive = creative.trend > 0
+  const hasPreview = !!creative.previewUrl
 
   return (
     <div className={clsx(
@@ -23,12 +36,17 @@ export function CreativeCard({ creative }: { creative: Creative }) {
     )}>
       {/* Thumbnail */}
       <div className="relative aspect-[3/4] bg-surface-2 overflow-hidden">
-        <img
-          src={creative.thumbnailUrl}
-          alt={creative.name}
-          className="w-full h-full object-cover transition-transform group-hover:scale-105"
-          loading="lazy"
-        />
+        {!imgFailed && creative.thumbnailUrl ? (
+          <img
+            src={creative.thumbnailUrl}
+            alt={creative.name}
+            className="w-full h-full object-cover transition-transform group-hover:scale-105"
+            loading="lazy"
+            onError={() => setImgFailed(true)}
+          />
+        ) : (
+          <ThumbnailPlaceholder format={creative.format} />
+        )}
 
         <div className="absolute top-2 left-2 flex flex-col gap-1">
           {creative.isTopPerformer && (
@@ -47,16 +65,29 @@ export function CreativeCard({ creative }: { creative: Creative }) {
           <FormatBadge format={creative.format} />
         </div>
 
+        {/* Hover overlay — Preview Ad CTA */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
-          <button className="flex items-center gap-1.5 text-xs text-white font-medium bg-white/10 backdrop-blur-sm px-2 py-1.5 rounded-lg">
-            <ExternalLink size={11} /> Preview Ad
-          </button>
+          {hasPreview ? (
+            <a
+              href={creative.previewUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1.5 text-xs text-white font-medium bg-white/20 hover:bg-white/30 backdrop-blur-sm px-3 py-1.5 rounded-lg transition-colors w-full justify-center"
+            >
+              <ExternalLink size={11} /> Preview Ad on Facebook
+            </a>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-white/50 font-medium bg-white/5 backdrop-blur-sm px-3 py-1.5 rounded-lg w-full justify-center cursor-default">
+              <ExternalLink size={11} /> No preview URL
+            </span>
+          )}
         </div>
       </div>
 
       {/* Metrics */}
       <div className="p-3 space-y-2">
-        <p className="text-xs font-semibold t1 truncate">{creative.name}</p>
+        <p className="text-xs font-semibold t1 truncate" title={creative.name}>{creative.name}</p>
 
         <div className="grid grid-cols-2 gap-1.5 text-[11px]">
           <div>

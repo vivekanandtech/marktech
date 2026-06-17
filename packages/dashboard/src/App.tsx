@@ -48,12 +48,11 @@ function MetaSyncProvider() {
   const metaAdAccountId = currentClient?.metaAdAccountId ?? null
   const prevAdAccountId = useRef<string | null>(null)
 
-  // Discover sessions from server on every mount — skips only if a connected
-  // client is already in localStorage. This handles fresh browsers AND browsers
-  // where stale/disconnected clients exist from a previous session.
+  // On mount: discover active Meta sessions from server and adopt them locally.
+  // Runs unconditionally (no localStorage guard) so stale/disconnected demo
+  // clients on Machine B don't block real session data from the DB.
+  // After adoption, forces filterStore.clientId to the connected client.
   useEffect(() => {
-    const alreadyConnected = useClientStore.getState().clients.some((c) => c.meta.connected)
-    if (alreadyConnected) return
     fetch(`${API}/auth/meta/sessions`)
       .then((r) => r.json())
       .then(({ sessions }) => {
@@ -66,16 +65,29 @@ function MetaSyncProvider() {
           selectedAdAccountId: s.selectedAdAccountId,
           expiresAt: new Date(s.expiresAt).toISOString(),
         }))
+        // After adoption, make sure filterStore points to a connected client.
+        // Machine B may have a stale clientId (e.g. 'c1' demo) in localStorage
+        // that doesn't match the newly adopted real client — override it.
+        const { clients: updated } = useClientStore.getState()
+        const { clientId: currentId, setClientId: setId } = useFilterStore.getState()
+        const currentIsConnected = updated.find(c => c.id === currentId)?.meta.connected
+        if (!currentIsConnected) {
+          const firstConnected = updated.find(c => c.meta.connected)
+          if (firstConnected) setId(firstConnected.id)
+        }
       })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])  // once on mount — reads store state directly to avoid stale closure
+  }, [])  // once on mount — reads store via getState() to avoid stale closure
 
-  // Auto-select first client if none selected or stored id no longer exists
+  // Auto-select first client if the stored clientId no longer exists in the list
   useEffect(() => {
     if (clients.length === 0) return
     const valid = clients.find((c) => c.id === clientId)
-    if (!valid) setClientId(clients[0].id)
+    if (!valid) {
+      const preferred = clients.find(c => c.meta.connected) ?? clients[0]
+      setClientId(preferred.id)
+    }
   }, [clients, clientId, setClientId])
 
   // Fall back to /auth/meta/status if not connected locally

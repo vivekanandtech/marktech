@@ -98,7 +98,7 @@ export function useMetaCreatives() {
     setLoading(true)
     setError(null)
     metaFetch(
-      `/api/meta/top-ads?clientId=${clientId}&adAccountId=${selectedAdAccountId}&limit=100`,
+      `/api/meta/top-ads?clientId=${clientId}&adAccountId=${selectedAdAccountId}&limit=25`,
       accessToken,
       controller.signal
     )
@@ -116,6 +116,44 @@ export function useMetaCreatives() {
   return { data, loading, error }
 }
 
+// Daily time-series breakdown — used by the Overview charts.
+// Returns one row per day for the selected dateRange.
+export function useMetaDailyInsights() {
+  const { clientId, dateRange } = useFilterStore()
+  const { clients } = useClientStore()
+  const currentClient = clients.find((c) => c.id === clientId)
+  const { connected, accessToken } = currentClient?.meta ?? { connected: false, accessToken: null }
+  const selectedAdAccountId = currentClient?.metaAdAccountId ?? null
+
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!connected || !selectedAdAccountId) return
+    const controller = new AbortController()
+    setLoading(true)
+    setError(null)
+    metaFetch(
+      `/api/meta/daily-insights?clientId=${clientId}&adAccountId=${selectedAdAccountId}&dateRange=${dateRange}`,
+      accessToken,
+      controller.signal
+    )
+      .then(async (r) => {
+        if (controller.signal.aborted) return
+        const json = await r.json()
+        if (controller.signal.aborted) return
+        if (json.error) { setError(json.error); return }
+        setData(json.data ?? [])
+      })
+      .catch((e) => { if (e.name !== 'AbortError') setError(e.message) })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [clientId, connected, selectedAdAccountId, accessToken, dateRange])
+
+  return { data, loading, error }
+}
+
 // Lazy-loads ad sets + ads for a single campaign when its row is expanded.
 export function useCampaignDetail(campaignId: string | null, dateRange: string) {
   const { clientId } = useFilterStore()
@@ -125,6 +163,7 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
 
   const [adSets, setAdSets] = useState<any[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const prevKey = useRef<string | null>(null)
 
   useEffect(() => {
@@ -133,6 +172,7 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
     if (prevKey.current === key) return   // already loaded for this campaign+range
     prevKey.current = key
     setAdSets(null)
+    setError(null)
     setLoading(true)
     metaFetch(
       `/api/meta/campaign-detail?clientId=${clientId}&campaignId=${campaignId}&dateRange=${dateRange}`,
@@ -140,11 +180,12 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
     )
       .then(async (r) => {
         const json = await r.json()
+        if (json.error) { setError(json.error); setAdSets([]); return }
         setAdSets(json.adSets ?? [])
       })
-      .catch(() => setAdSets([]))
+      .catch((e) => { setError(e.message); setAdSets([]) })
       .finally(() => setLoading(false))
   }, [campaignId, dateRange, clientId, accessToken])
 
-  return { adSets, loading }
+  return { adSets, loading, error }
 }

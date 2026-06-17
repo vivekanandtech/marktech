@@ -6,7 +6,15 @@ import { formatCurrency } from '@/lib/formatters'
 import { useThemeStore } from '@/store/themeStore'
 
 interface SpendVsSalesChartProps {
-  data: Array<{ date: string; adSpend: number; netSales: number; metaSpend: number; googleSpend: number }>
+  data: Array<{
+    date: string
+    metaSpend: number
+    purchaseValue: number  // attributed purchase value = spend × ROAS
+    // legacy fields kept for mock-data compatibility
+    adSpend?: number
+    netSales?: number
+    googleSpend?: number
+  }>
 }
 
 function useChartColors() {
@@ -48,9 +56,8 @@ export function SpendVsSalesChart({ data }: SpendVsSalesChartProps) {
         <YAxis yAxisId="sales" orientation="right" tick={{ fill: c.axis, fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatCurrency(v)} />
         <Tooltip content={<CustomTooltip colors={c} />} />
         <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} formatter={(v) => <span style={{ color: c.muted }}>{v}</span>} />
-        <Bar yAxisId="spend" dataKey="metaSpend" name="Meta Spend" stackId="spend" fill="#6366f1" fillOpacity={0.85} radius={[0, 0, 0, 0]} />
-        <Bar yAxisId="spend" dataKey="googleSpend" name="Google Spend" stackId="spend" fill="#8b5cf6" fillOpacity={0.85} radius={[2, 2, 0, 0]} />
-        <Line yAxisId="sales" name="Net Sales" type="monotone" dataKey="netSales" stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+        <Bar yAxisId="spend" dataKey="metaSpend" name="Meta Spend" fill="#6366f1" fillOpacity={0.85} radius={[2, 2, 0, 0]} />
+        <Line yAxisId="sales" name="Purchase Value" type="monotone" dataKey="purchaseValue" stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
       </ComposedChart>
     </ResponsiveContainer>
   )

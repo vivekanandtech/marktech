@@ -29,7 +29,9 @@ function transformRawAd(ad: any) {
     : creative.object_type === 'SHARE'
     ? 'carousel'
     : 'image'
-  const thumbnailUrl = creative.thumbnail_url ?? creative.image_url ?? ''
+  // _imageUrl and _previewUrl are pre-resolved by the API's pickBestImage/buildPreviewUrl helpers
+  const thumbnailUrl = creative._imageUrl ?? creative.image_url ?? creative.thumbnail_url ?? ''
+  const previewUrl   = creative._previewUrl ?? ''
   const isTopPerformer = metrics.roas >= 3.5
   const fatigueRisk    = metrics.frequency >= 3
   return {
@@ -37,6 +39,7 @@ function transformRawAd(ad: any) {
     name: ad.name ?? 'Unnamed ad',
     format,
     thumbnailUrl,
+    previewUrl,
     spend:           metrics.spend,
     roas:            metrics.roas,
     ctr:             metrics.ctr,

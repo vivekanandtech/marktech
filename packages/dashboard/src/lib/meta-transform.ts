@@ -51,17 +51,23 @@ function summarizeTargeting(targeting: any): string {
   return parts.join(' · ')
 }
 
+function deriveActionTag(roas: number): string {
+  return roas >= 4.5 ? 'scale' : roas >= 3 ? 'watch' : 'optimise'
+}
+
 export function transformMetaAd(a: any) {
   try {
     const creative = a.creative ?? {}
     const format = creative.video_id ? 'video' : creative.object_type === 'SHARE' ? 'carousel' : 'image'
+    const metrics = transformInsightMetrics(a.insights)
     return {
       id: a.id ?? Math.random().toString(),
       name: a.name ?? 'Unnamed ad',
       format,
       status: (a.effective_status ?? a.status ?? 'unknown').toLowerCase(),
       thumbnailUrl: creative.thumbnail_url ?? creative.image_url ?? '',
-      ...transformInsightMetrics(a.insights),
+      ...metrics,
+      actionTag: deriveActionTag(metrics.roas),
       trend: 0,
     }
   } catch {
@@ -74,12 +80,14 @@ export function transformMetaAdSet(as: any) {
     const ads = (Array.isArray(as.ads) ? as.ads : [])
       .map(transformMetaAd)
       .filter((a: any): a is NonNullable<ReturnType<typeof transformMetaAd>> => a !== null)
+    const metrics = transformInsightMetrics(as.insights)
     return {
       id: as.id ?? Math.random().toString(),
       name: as.name ?? 'Unnamed ad set',
       audience: summarizeTargeting(as.targeting),
       status: (as.effective_status ?? as.status ?? 'unknown').toLowerCase(),
-      ...transformInsightMetrics(as.insights),
+      ...metrics,
+      actionTag: deriveActionTag(metrics.roas),
       trend: 0,
       ads,
     }
@@ -94,14 +102,19 @@ export function transformMetaCampaign(c: any) {
     const adSets = (Array.isArray(c.adsets) ? c.adsets : [])
       .map(transformMetaAdSet)
       .filter((a: any): a is NonNullable<ReturnType<typeof transformMetaAdSet>> => a !== null)
+    const metrics = transformInsightMetrics(c.insights)
+    const actionTag = deriveActionTag(metrics.roas)
     return {
       id: c.id ?? Math.random().toString(),
       name: c.name ?? 'Unnamed campaign',
       platform: 'meta' as const,
       status: (c.effective_status ?? c.status ?? 'unknown').toLowerCase(),
       type: 'prospecting' as const,
+      market: '',           // not available from Meta API
+      objective: c.objective ?? '',
       dailyBudget,
-      ...transformInsightMetrics(c.insights),
+      ...metrics,
+      actionTag,
       trend: 0,
       adSets,
     }

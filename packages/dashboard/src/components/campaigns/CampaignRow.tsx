@@ -22,7 +22,7 @@ export function CampaignRow({ campaign }: { campaign: Campaign }) {
 
   // Lazy-load ad sets only when the row is expanded — avoids fetching all
   // ad sets/ads for 800+ campaigns upfront.
-  const { adSets, loading: loadingDetail } = useCampaignDetail(
+  const { adSets, loading: loadingDetail, error: detailError } = useCampaignDetail(
     expanded ? campaign.id : null,
     dateRange
   )
@@ -104,6 +104,16 @@ export function CampaignRow({ campaign }: { campaign: Campaign }) {
               <Loader2 size={12} className="inline animate-spin mr-1.5" />
               Loading ad sets…
             </td>
+          </tr>
+        ) : detailError ? (
+          <tr>
+            <td colSpan={6} className="py-3 pl-12 text-xs text-red-500">
+              Failed to load: {detailError}
+            </td>
+          </tr>
+        ) : displayAdSets.length === 0 ? (
+          <tr>
+            <td colSpan={6} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
           </tr>
         ) : (
           displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} />)

@@ -267,8 +267,11 @@ export async function getCampaignDetail(
   token: string,
   dateRange = '30D'
 ): Promise<any[]> {
+  // Don't embed creative{} in the ads fetch — it triggers Meta's "reduce data"
+  // error on campaigns with many ads. Creative thumbnails are cosmetic; losing
+  // them is better than the whole expansion failing.
   const adsetFields = 'id,name,campaign_id,status,daily_budget,targeting,effective_status'
-  const adFields    = 'id,name,status,adset_id,campaign_id,effective_status,creative{id,title,body,thumbnail_url,image_url,video_id,object_type}'
+  const adFields    = 'id,name,status,adset_id,campaign_id,effective_status'
   const insightTime = JSON.stringify(toTimeRange(dateRange))
 
   const adsetInsightParams = new URLSearchParams({
@@ -286,11 +289,17 @@ export async function getCampaignDetail(
     access_token: token,
   })
 
+  // Each request is guarded individually — one throttled/failed call should not
+  // wipe the entire expansion for the other levels.
+  const safe = async (fn: () => Promise<any[]>): Promise<any[]> => {
+    try { return await fn() } catch { return [] }
+  }
+
   const [adsets, adsetInsights, ads, adInsights] = await Promise.all([
-    fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=200&access_token=${token}`),
-    fetchAllPages(`${GRAPH}/${campaignId}/insights?${adsetInsightParams}`),
-    fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&limit=200&access_token=${token}`),
-    fetchAllPages(`${GRAPH}/${campaignId}/insights?${adInsightParams}`),
+    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=200&access_token=${token}`)),
+    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/insights?${adsetInsightParams}`)),
+    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&limit=200&access_token=${token}`)),
+    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/insights?${adInsightParams}`)),
   ])
 
   const adsetInsightMap = new Map(adsetInsights.map((i: any) => [i.adset_id, i]))
@@ -310,31 +319,152 @@ export async function getCampaignDetail(
   }))
 }
 
-// Top ads for the Creatives page — fetches ads with inline 30-day insights and
-// creative assets, sorted by spend desc. Filtering is done client-side to avoid
-// Meta API rejecting the `filtering` param on certain account types.
-export async function getTopAds(adAccountId: string, token: string, limit = 50): Promise<any[]> {
+// Pick the highest-quality image URL available in a creative object.
+// Priority:
+//   1. adimages permalink (full-res, fetched separately via image_hash)
+//   2. object_story_spec.link_data.picture (good quality for link/image ads)
+//   3. object_story_spec.video_data.image_url (video ad custom thumbnail)
+//   4. object_story_spec.photo_data.images (photo ads)
+//   5. image_url / thumbnail_url (low-res fallbacks)
+function pickBestImage(cr: any, hashUrlMap: Record<string, string> = {}): string {
+  if (cr.image_hash && hashUrlMap[cr.image_hash]) return hashUrlMap[cr.image_hash]
+
+  const ldPicture = cr.object_story_spec?.link_data?.picture
+  if (ldPicture) return ldPicture
+
+  const vdImage = cr.object_story_spec?.video_data?.image_url
+  if (vdImage) return vdImage
+
+  const pdImages = cr.object_story_spec?.photo_data?.images
+  if (pdImages && typeof pdImages === 'object') {
+    const preferred = pdImages['standard'] ?? pdImages['maximum'] ?? Object.values(pdImages)[0] as any
+    if (preferred?.url) return preferred.url
+  }
+
+  return cr.image_url ?? cr.thumbnail_url ?? ''
+}
+
+// Build a clickable preview URL for the ad.
+// effective_object_story_id is a {page_id}_{post_id} string that maps to
+// a real Facebook post the user can view without needing Ads Manager access.
+function buildPreviewUrl(cr: any): string {
+  const storyId = cr.effective_object_story_id
+  if (storyId) return `https://www.facebook.com/${storyId}`
+  const link = cr.object_story_spec?.link_data?.link
+  if (link) return link
+  return ''
+}
+
+// Top ads for the Creatives page — 2-step approach to avoid Meta's
+// "reduce the amount of data" error from embedding insights in the ads query:
+// 1. Fetch ad-level insights from the dedicated insights endpoint (lightweight).
+// 2. Batch-fetch creative details only for the top N ad IDs.
+export async function getTopAds(adAccountId: string, token: string, limit = 25): Promise<any[]> {
+  const safeLimit = Math.min(limit, 25)   // hard cap — >25 in one batch triggers Meta's data limit
+  const { since, until } = toTimeRange('30D')
   const insightFields = [
-    'spend', 'impressions', 'clicks', 'reach', 'purchase_roas',
-    'ctr', 'cpm', 'frequency', 'actions', 'action_values',
+    'ad_id', 'ad_name', 'spend', 'impressions', 'clicks', 'reach',
+    'purchase_roas', 'ctr', 'cpm', 'frequency', 'actions', 'action_values',
   ].join(',')
-  const creativeFields = 'id,title,body,thumbnail_url,image_url,video_id,object_type'
-  const fields = [
-    'id', 'name', 'status', 'effective_status',
-    `creative{${creativeFields}}`,
-    `insights.date_preset(last_30d){${insightFields}}`,
-  ].join(',')
-  const params = new URLSearchParams({ fields, limit: String(Math.min(limit, 200)), access_token: token })
-  const ads = await fetchAllPages(`${GRAPH}/${adAccountId}/ads?${params}`)
-  const KEEP = new Set(['active', 'paused', 'ACTIVE', 'PAUSED'])
-  return ads
-    .filter((a) => KEEP.has(a.effective_status ?? a.status ?? ''))
-    .sort((a, b) => {
-      const sA = parseFloat(a.insights?.data?.[0]?.spend ?? '0')
-      const sB = parseFloat(b.insights?.data?.[0]?.spend ?? '0')
-      return sB - sA
+
+  // Step 1 — fetch a modest page of ad insights, sort by spend, take top N.
+  // Keeping the fetch size at 3× the final limit avoids Meta's data-reduction
+  // error while still giving us enough rows to find the top spenders.
+  const insightParams = new URLSearchParams({
+    fields: insightFields,
+    time_range: JSON.stringify({ since, until }),
+    level: 'ad',
+    limit: String(Math.min(safeLimit * 3, 75)),
+    access_token: token,
+  })
+  const insRes = await fetch(`${GRAPH}/${adAccountId}/insights?${insightParams}`)
+  const insData = await insRes.json() as any
+  if (insData.error) throw new Error(insData.error.message)
+  const topInsights = ((insData.data ?? []) as any[])
+    .sort((a, b) => parseFloat(b.spend ?? '0') - parseFloat(a.spend ?? '0'))
+    .slice(0, safeLimit)
+
+  if (topInsights.length === 0) return []
+
+  // Step 2 — batch creative details in chunks of 10.
+  // We request image_hash + object_story_spec (including video_data) so we can
+  // resolve full-resolution images in step 3.
+  const CHUNK = 10
+  const adDataMap: Record<string, any> = {}
+  for (let i = 0; i < topInsights.length; i += CHUNK) {
+    const chunk = topInsights.slice(i, i + CHUNK)
+    const creativeFields = [
+      'id', 'thumbnail_url', 'image_url', 'image_hash', 'video_id', 'object_type',
+      'effective_object_story_id',
+      'object_story_spec{link_data{picture,link},photo_data{images},video_data{image_url}}',
+    ].join(',')
+    const adParams = new URLSearchParams({
+      ids: chunk.map((ins: any) => ins.ad_id).join(','),
+      fields: `id,name,status,effective_status,creative{${creativeFields}}`,
+      access_token: token,
     })
-    .slice(0, limit)
+    const adRes = await fetch(`${GRAPH}/?${adParams}`)
+    const adChunk = await adRes.json() as any
+    if (!adChunk.error) Object.assign(adDataMap, adChunk)
+  }
+
+  // Step 3 — bulk-resolve image_hash → full-res permalink via the adimages endpoint.
+  // This gives the original-upload resolution for any image-based creative (typically
+  // 1200×628 or higher), much sharper than thumbnail_url or link_data.picture.
+  const hashUrlMap: Record<string, string> = {}
+  const hashes = Object.values(adDataMap)
+    .map((ad: any) => ad.creative?.image_hash)
+    .filter(Boolean) as string[]
+
+  if (hashes.length > 0) {
+    try {
+      const imgParams = new URLSearchParams({
+        hashes: hashes.join(','),
+        fields: 'hash,permalink_url',
+        access_token: token,
+      })
+      const imgRes = await fetch(`${GRAPH}/${adAccountId}/adimages?${imgParams}`)
+      const imgData = await imgRes.json() as any
+      if (!imgData.error && Array.isArray(imgData.data)) {
+        for (const img of imgData.data) {
+          if (img.hash && img.permalink_url) hashUrlMap[img.hash] = img.permalink_url
+        }
+      }
+    } catch { /* non-fatal — will fall back to lower-res sources */ }
+  }
+
+  return topInsights.map((ins: any) => {
+    const ad = adDataMap[ins.ad_id] ?? {}
+    const cr = ad.creative ?? {}
+    const imageUrl   = pickBestImage(cr, hashUrlMap)
+    const previewUrl = buildPreviewUrl(cr)
+    return {
+      id: ins.ad_id,
+      name: ins.ad_name,
+      status: ad.status ?? 'unknown',
+      effective_status: ad.effective_status ?? 'unknown',
+      creative: { ...cr, _imageUrl: imageUrl, _previewUrl: previewUrl },
+      insights: { data: [ins] },
+    }
+  })
+}
+
+// Daily time-series insights — used by the Overview charts.
+// Returns one row per day with spend, purchase value, ROAS, CTR, and
+// conversion count so the frontend can draw Spend, ROAS, and CVR charts.
+export async function getDailyInsights(adAccountId: string, token: string, dateRange = '30D') {
+  const fields = [
+    'date_start', 'spend', 'impressions', 'clicks', 'reach',
+    'purchase_roas', 'ctr', 'actions', 'action_values',
+  ].join(',')
+  const params = new URLSearchParams({
+    fields,
+    time_range: JSON.stringify(toTimeRange(dateRange)),
+    level: 'account',
+    time_increment: '1',
+    access_token: token,
+  })
+  return fetchAllPages(`${GRAPH}/${adAccountId}/insights?${params}`)
 }
 
 // ─── Verify a token is still valid ───────────────────────────────────────────
