@@ -188,17 +188,21 @@ export const useClientStore = create<ClientStore>()(
       }) => {
         const existing = get().clients.find((c) => c.id === session.clientId)
         if (existing) {
-          // Client already exists — just ensure meta connection is set
+          // Client already exists — update meta connection, preserving any
+          // account selection already made. Fall back to first account if none set.
           set({
             clients: get().clients.map((c) => {
               if (c.id !== session.clientId) return c
-              const metaAdAccountId = session.selectedAdAccountId ?? c.metaAdAccountId
-              const enabledIds = session.selectedAdAccountId
-                ? [session.selectedAdAccountId]
-                : c.meta.enabledAdAccountIds
+              const pickedId = session.selectedAdAccountId
+                ?? c.metaAdAccountId
+                ?? session.adAccounts[0]?.id
+                ?? null
+              const enabledIds = pickedId
+                ? [pickedId]
+                : c.meta.enabledAdAccountIds ?? null
               return {
                 ...c,
-                metaAdAccountId,
+                metaAdAccountId: pickedId,
                 meta: {
                   connected: true,
                   metaUserId: session.metaUserId,
@@ -211,8 +215,11 @@ export const useClientStore = create<ClientStore>()(
             }),
           })
         } else {
-          // New browser — create a client entry using the server's clientId
+          // New browser — create a client entry using the server's clientId.
+          // If no account was explicitly selected, fall back to the first
+          // available account so data fetches can proceed without user action.
           const firstName = session.adAccounts[0]?.name ?? 'Client'
+          const pickedId = session.selectedAdAccountId ?? session.adAccounts[0]?.id ?? null
           const client: Client = {
             id: session.clientId,  // must match DB key for token lookup
             name: firstName,
@@ -220,15 +227,13 @@ export const useClientStore = create<ClientStore>()(
             logoInitials: initials(firstName),
             logoColor: pickColor(firstName),
             createdAt: new Date().toISOString(),
-            metaAdAccountId: session.selectedAdAccountId,
+            metaAdAccountId: pickedId,
             meta: {
               connected: true,
               metaUserId: session.metaUserId,
               accessToken: null,  // backend handles token via DB
               adAccounts: session.adAccounts,
-              enabledAdAccountIds: session.selectedAdAccountId
-                ? [session.selectedAdAccountId]
-                : null,
+              enabledAdAccountIds: pickedId ? [pickedId] : null,
               expiresAt: session.expiresAt,
             },
           }

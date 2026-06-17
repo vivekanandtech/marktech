@@ -48,14 +48,18 @@ function MetaSyncProvider() {
   const metaAdAccountId = currentClient?.metaAdAccountId ?? null
   const prevAdAccountId = useRef<string | null>(null)
 
-  // New browser with no local clients — discover sessions from the server
+  // Discover sessions from server on every mount — skips only if a connected
+  // client is already in localStorage. This handles fresh browsers AND browsers
+  // where stale/disconnected clients exist from a previous session.
   useEffect(() => {
-    if (clients.length > 0) return
+    const alreadyConnected = useClientStore.getState().clients.some((c) => c.meta.connected)
+    if (alreadyConnected) return
     fetch(`${API}/auth/meta/sessions`)
       .then((r) => r.json())
       .then(({ sessions }) => {
         if (!sessions?.length) return
-        sessions.forEach((s: any) => adoptSession({
+        const { adoptSession: adopt } = useClientStore.getState()
+        sessions.forEach((s: any) => adopt({
           clientId: s.clientId,
           metaUserId: s.metaUserId,
           adAccounts: s.adAccounts,
@@ -64,7 +68,8 @@ function MetaSyncProvider() {
         }))
       })
       .catch(() => {})
-  }, [clients.length, adoptSession])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])  // once on mount — reads store state directly to avoid stale closure
 
   // Auto-select first client if none selected or stored id no longer exists
   useEffect(() => {
