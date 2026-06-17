@@ -1,19 +1,64 @@
-// Meta Marketing API service
-// All calls go through here — swap mock data for real data per client
+import { getPool } from '../lib/db'
 
 const GRAPH = 'https://graph.facebook.com/v20.0'
 const APP_ID = process.env.META_APP_ID!
 const APP_SECRET = process.env.META_APP_SECRET!
 const REDIRECT_URI = process.env.META_REDIRECT_URI!
 
-// ─── Token store (in-memory for dev, replace with DB query in production) ────
-// Key: clientId, Value: { accessToken, adAccountIds, expiresAt }
+// ─── In-memory token store (fast path — populated on OAuth and on DB reads) ───
 export const tokenStore = new Map<string, {
   accessToken: string
   adAccountIds: string[]
   metaUserId: string
   expiresAt: number
 }>()
+
+// ─── DB-backed token persistence ─────────────────────────────────────────────
+
+export async function dbSaveToken(clientId: string, data: {
+  accessToken: string
+  metaUserId: string
+  adAccountIds: string[]
+  expiresAt: number  // Unix ms
+}): Promise<void> {
+  const db = getPool()
+  if (!db) return
+  await db.query(
+    `INSERT INTO meta_tokens (client_id, access_token, meta_user_id, ad_account_ids, expires_at, updated_at)
+     VALUES ($1, $2, $3, $4, to_timestamp($5), NOW())
+     ON CONFLICT (client_id) DO UPDATE SET
+       access_token   = EXCLUDED.access_token,
+       meta_user_id   = EXCLUDED.meta_user_id,
+       ad_account_ids = EXCLUDED.ad_account_ids,
+       expires_at     = EXCLUDED.expires_at,
+       updated_at     = NOW()`,
+    [clientId, data.accessToken, data.metaUserId, data.adAccountIds, data.expiresAt / 1000]
+  )
+}
+
+export async function dbGetToken(clientId: string): Promise<{
+  accessToken: string
+  metaUserId: string
+  adAccountIds: string[]
+  expiresAt: number
+} | null> {
+  const db = getPool()
+  if (!db) return null
+  const result = await db.query(
+    `SELECT access_token, meta_user_id, ad_account_ids, extract(epoch from expires_at) * 1000 AS expires_ms
+     FROM meta_tokens
+     WHERE client_id = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
+    [clientId]
+  )
+  if (!result.rows[0]) return null
+  const row = result.rows[0]
+  return {
+    accessToken:   row.access_token,
+    metaUserId:    row.meta_user_id,
+    adAccountIds:  row.ad_account_ids ?? [],
+    expiresAt:     Number(row.expires_ms),
+  }
+}
 
 // ─── OAuth helpers ────────────────────────────────────────────────────────────
 

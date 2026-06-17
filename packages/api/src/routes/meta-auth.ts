@@ -3,6 +3,7 @@ import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
   getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail,
+  dbSaveToken, dbGetToken,
 } from '../services/meta'
 
 export async function metaAuthRoutes(app: FastifyInstance) {
@@ -39,13 +40,20 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
         const clientId = state ?? 'default'
 
-        // Store in memory (replace with DB INSERT in production)
-        tokenStore.set(clientId, {
-          accessToken: longToken,
+        const tokenData = {
+          accessToken:  longToken,
           adAccountIds: adAccounts.map((a: any) => a.id),
           metaUserId,
-          expiresAt: Date.now() + expiresIn * 1000,
-        })
+          expiresAt:    Date.now() + expiresIn * 1000,
+        }
+
+        // Write to in-memory store (fast path for this server instance)
+        tokenStore.set(clientId, tokenData)
+
+        // Write to DB so any server instance / user can pick it up
+        await dbSaveToken(clientId, tokenData).catch((err) =>
+          app.log.error({ err: err.message }, 'Failed to persist Meta token to DB')
+        )
 
         app.log.info({ clientId, metaUserId, accounts: adAccounts.length }, 'Meta token stored')
 
@@ -104,11 +112,20 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
 // ─── Meta data routes (stateless — token passed from client) ─────────────────
 
-function resolveToken(clientId: string, headerToken?: string): string | null {
-  // 1. Token passed directly from client (preferred — survives server restarts)
+async function resolveToken(clientId: string, headerToken?: string): Promise<string | null> {
+  // 1. Header token from client localStorage — fastest, no DB round-trip
   if (headerToken) return headerToken
-  // 2. Fall back to server-side store if available
-  return tokenStore.get(clientId)?.accessToken ?? null
+  // 2. In-memory store — same server instance, still fast
+  const mem = tokenStore.get(clientId)
+  if (mem) return mem.accessToken
+  // 3. DB — covers other browsers/users who never did the OAuth themselves
+  const row = await dbGetToken(clientId)
+  if (row) {
+    // Warm the in-memory cache so next request is fast
+    tokenStore.set(clientId, row)
+    return row.accessToken
+  }
+  return null
 }
 
 export async function metaDataRoutes(app: FastifyInstance) {
@@ -117,7 +134,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     Querystring: { clientId?: string; adAccountId: string; dateRange?: string; level?: string }
   }>('/insights', async (request, reply) => {
     const { clientId = 'default', adAccountId, dateRange = '30D', level = 'campaign' } = request.query
-    const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
+    const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
     if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
     const insights = await getCampaignInsights(adAccountId, token, dateRange, level)
     return { data: insights, source: 'meta_api' }
@@ -127,7 +144,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     '/campaigns',
     async (request, reply) => {
       const { clientId = 'default', adAccountId, dateRange = '30D' } = request.query
-      const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
+      const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
       const safe = async (label: string, fn: () => Promise<any>): Promise<any> => {
@@ -166,7 +183,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     '/campaign-detail',
     async (request, reply) => {
       const { clientId = 'default', campaignId, dateRange = '30D' } = request.query
-      const token = resolveToken(clientId, request.headers['x-meta-token'] as string)
+      const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       const adSets = await getCampaignDetail(campaignId, token, dateRange)
       return { adSets, source: 'meta_api' }
