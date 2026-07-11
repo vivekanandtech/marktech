@@ -188,58 +188,54 @@ export const useClientStore = create<ClientStore>()(
         accessToken: string
         expiresAt: string
       }) => {
-        const existing = get().clients.find((c) => c.id === session.clientId)
+        const clients = get().clients
+        // Match on clientId first; fall back to metaUserId to avoid creating
+        // duplicate cards when the same Meta user has multiple DB rows.
+        const existing =
+          clients.find((c) => c.id === session.clientId) ??
+          clients.find((c) => c.meta.metaUserId === session.metaUserId)
+
+        const pickedId =
+          session.selectedAdAccountId ??
+          existing?.metaAdAccountId ??
+          session.adAccounts[0]?.id ??
+          null
+
+        const enabledIds = pickedId ? [pickedId] : existing?.meta.enabledAdAccountIds ?? null
+
+        const metaPayload = {
+          connected: true,
+          metaUserId: session.metaUserId,
+          accessToken: session.accessToken,
+          adAccounts: session.adAccounts,
+          enabledAdAccountIds: enabledIds,
+          expiresAt: session.expiresAt,
+        }
+
         if (existing) {
-          // Client already exists — update meta connection, preserving any
-          // account selection already made. Fall back to first account if none set.
           set({
-            clients: get().clients.map((c) => {
-              if (c.id !== session.clientId) return c
-              const pickedId = session.selectedAdAccountId
-                ?? c.metaAdAccountId
-                ?? session.adAccounts[0]?.id
-                ?? null
-              const enabledIds = pickedId
-                ? [pickedId]
-                : c.meta.enabledAdAccountIds ?? null
-              return {
-                ...c,
-                metaAdAccountId: pickedId,
-                meta: {
-                  connected: true,
-                  metaUserId: session.metaUserId,
-                  accessToken: session.accessToken,
-                  adAccounts: session.adAccounts,
-                  enabledAdAccountIds: enabledIds,
-                  expiresAt: session.expiresAt,
-                },
-              }
+            clients: clients.map((c) => {
+              if (c.id !== existing.id) return c
+              return { ...c, id: session.clientId, metaAdAccountId: pickedId, meta: metaPayload }
             }),
           })
         } else {
-          // New browser — create a client entry using the server's clientId.
-          // If no account was explicitly selected, fall back to the first
-          // available account so data fetches can proceed without user action.
           const firstName = session.adAccounts[0]?.name ?? 'Client'
-          const pickedId = session.selectedAdAccountId ?? session.adAccounts[0]?.id ?? null
-          const client: Client = {
-            id: session.clientId,  // must match DB key for token lookup
-            name: firstName,
-            industry: 'Other',
-            logoInitials: initials(firstName),
-            logoColor: pickColor(firstName),
-            createdAt: new Date().toISOString(),
-            metaAdAccountId: pickedId,
-            meta: {
-              connected: true,
-              metaUserId: session.metaUserId,
-              accessToken: session.accessToken,
-              adAccounts: session.adAccounts,
-              enabledAdAccountIds: pickedId ? [pickedId] : null,
-              expiresAt: session.expiresAt,
-            },
-          }
-          set({ clients: [...get().clients, client] })
+          set({
+            clients: [
+              ...clients,
+              {
+                id: session.clientId,
+                name: firstName,
+                industry: 'Other',
+                logoInitials: initials(firstName),
+                logoColor: pickColor(firstName),
+                createdAt: new Date().toISOString(),
+                metaAdAccountId: pickedId,
+                meta: metaPayload,
+              },
+            ],
+          })
         }
       },
     }),

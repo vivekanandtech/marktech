@@ -42,28 +42,29 @@ export function Badge({ children, variant = 'default', dot = false, className }:
   )
 }
 
+// The headline verdict on every campaign/ad set/ad — deliberately the boldest,
+// highest-contrast element in the row so it's the first thing the eye catches.
+// Solid fill (not the soft tinted style other badges use) on purpose.
+const ACTION_TAG_CONFIG: Record<string, { label: string; icon: string; classes: string }> = {
+  scale:    { label: 'Scale',    icon: '▲', classes: 'bg-emerald-500 text-white shadow-emerald-500/30' },
+  watch:    { label: 'Watch',    icon: '●', classes: 'bg-amber-500 text-white shadow-amber-500/30' },
+  optimise: { label: 'Optimise', icon: '◆', classes: 'bg-blue-500 text-white shadow-blue-500/30' },
+  pause:    { label: 'Pause',    icon: '■', classes: 'bg-red-500 text-white shadow-red-500/30' },
+}
+
 export const ActionTagBadge = ({ tag }: { tag?: string }) => {
   if (!tag) return null
-  const map: Record<string, BadgeVariant> = { scale: 'success', watch: 'warning', pause: 'danger', optimise: 'info' }
-  return <Badge variant={map[tag] ?? 'default'}>{tag.charAt(0).toUpperCase() + tag.slice(1)}</Badge>
-}
-
-export const CampaignTypeBadge = ({ type }: { type: string }) => {
-  const map: Record<string, { label: string; variant: BadgeVariant }> = {
-    advantage_plus: { label: 'A+', variant: 'purple' },
-    lookalike:      { label: 'LAL', variant: 'indigo' },
-    retargeting:    { label: 'RTG', variant: 'orange' },
-    prospecting:    { label: 'PRO', variant: 'cyan' },
-    brand_awareness:{ label: 'BRAND', variant: 'info' },
-  }
-  const cfg = map[type] ?? { label: type, variant: 'default' as BadgeVariant }
-  return <Badge variant={cfg.variant}>{cfg.label}</Badge>
-}
-
-export const MarketBadge = ({ market }: { market: string }) => {
-  if (market === 'india') return <Badge variant="orange">🇮🇳 India</Badge>
-  if (market === 'international') return <Badge variant="info">🌍 Intl</Badge>
-  return <Badge variant="default">All</Badge>
+  const cfg = ACTION_TAG_CONFIG[tag]
+  if (!cfg) return null
+  return (
+    <span className={clsx(
+      'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wide shadow-sm',
+      cfg.classes
+    )}>
+      <span className="text-[9px]">{cfg.icon}</span>
+      {cfg.label}
+    </span>
+  )
 }
 
 export const StatusBadge = ({ status }: { status: string }) => {

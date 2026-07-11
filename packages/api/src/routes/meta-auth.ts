@@ -3,7 +3,7 @@ import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
   getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail, getTopAds, getDailyInsights,
-  dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions,
+  dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions, dbDeleteToken,
 } from '../services/meta'
 
 export async function metaAuthRoutes(app: FastifyInstance) {
@@ -109,6 +109,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
     return {
       connected: true,
       metaUserId: stored.metaUserId,
+      accessToken: stored.accessToken,
       adAccounts,
       selectedAdAccountId: dbRow?.selectedAdAccountId ?? null,
       expiresAt: new Date(stored.expiresAt).toISOString(),
@@ -133,10 +134,15 @@ export async function metaAuthRoutes(app: FastifyInstance) {
     }
   )
 
-  // Disconnect (revoke)
+  // Disconnect (revoke) — clears in-memory cache AND the persisted DB row.
+  // Without the DB delete, a "disconnected" or deleted client resurfaces on
+  // the next session-discovery pass since its row would still be there.
   app.delete<{ Querystring: { clientId?: string } }>('/meta/disconnect', async (request) => {
     const clientId = request.query.clientId ?? 'default'
     tokenStore.delete(clientId)
+    await dbDeleteToken(clientId).catch((err) =>
+      app.log.error({ err: err.message, clientId }, 'Failed to delete Meta token from DB')
+    )
     return { success: true }
   })
 }

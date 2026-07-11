@@ -3,6 +3,8 @@ import clsx from 'clsx'
 import { formatCurrency, formatRoas, formatPercent } from '@/lib/formatters'
 import { TrendBadge } from '@/components/ui/TrendBadge'
 import { ActionTagBadge, FormatBadge, StatusBadge } from '@/components/ui/Badge'
+import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
+import { adManagerUrl } from '@/lib/meta-links'
 
 interface Ad {
   id: string; name: string; format: string; status: string; thumbnailUrl: string
@@ -18,7 +20,8 @@ const FORMAT_ICONS: Record<string, React.ReactNode> = {
   image:    <Image size={10} />,
 }
 
-export function AdRow({ ad }: { ad: Ad }) {
+export function AdRow({ ad, adAccountId }: { ad: Ad; adAccountId?: string | null }) {
+  const metaUrl = adAccountId ? adManagerUrl(adAccountId, ad.id) : null
   return (
     <tr className="hover:bg-surface-2/30 transition-colors">
       {/* Ad level — deeper indent, double-level left border */}
@@ -40,8 +43,9 @@ export function AdRow({ ad }: { ad: Ad }) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-[11px] font-medium t2">{ad.name}</p>
               <ActionTagBadge tag={ad.actionTag} />
+              <p className="text-[11px] font-medium t2">{ad.name}</p>
+              {metaUrl && <MetaCtaButton href={metaUrl} size="xs" />}
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
               <FormatBadge format={ad.format} />

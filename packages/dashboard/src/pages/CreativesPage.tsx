@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import clsx from 'clsx'
-import { Loader2, AlertTriangle, Link2 } from 'lucide-react'
+import { Loader2, AlertTriangle, Link2, Lightbulb } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { CreativeCard } from '@/components/creatives/CreativeCard'
 import { useFilterStore } from '@/store/filterStore'
@@ -8,6 +8,7 @@ import { useClientStore } from '@/store/clientStore'
 import { useMetaCreatives } from '@/hooks/useMetaData'
 import { getCreatives } from '@/lib/mock-data'
 import { transformInsightMetrics, safeFloat } from '@/lib/meta-transform'
+import { useInsightsStore } from '@/store/insightsStore'
 
 type SortKey = 'roas' | 'spend' | 'ctr' | 'trend'
 
@@ -53,14 +54,17 @@ function transformRawAd(ad: any) {
 
 function ConnectedView() {
   const { clientId } = useFilterStore()
+  const { clients } = useClientStore()
+  const adAccountId = clients.find((c) => c.id === clientId)?.metaAdAccountId ?? null
   const [sortBy, setSortBy] = useState<SortKey>('roas')
   const [filterFatigue, setFilterFatigue] = useState(false)
   const [filterTop, setFilterTop] = useState(false)
 
   const { data: rawAds, loading, error } = useMetaCreatives()
+  const accountInsights = useInsightsStore((s) => s.insights.filter((i) => i.entityType === 'account'))
 
-  const creatives = rawAds
-    .map(transformRawAd)
+  const allCreatives = rawAds.map(transformRawAd)
+  const creatives = allCreatives
     .filter((c) => (!filterFatigue || c.fatigueRisk) && (!filterTop || c.isTopPerformer))
     .sort((a, b) => (b[sortBy] as number) - (a[sortBy] as number))
 
@@ -108,6 +112,21 @@ function ConnectedView() {
         </div>
       )}
 
+      {accountInsights.length > 0 && (
+        <div className="space-y-2">
+          {accountInsights.map((insight, i) => (
+            <div key={i} className="flex items-start gap-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
+              <Lightbulb size={16} className="text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold t1">{insight.title}</p>
+                <p className="text-xs t2 mt-0.5">{insight.message}</p>
+                <p className="text-xs t3 mt-1 italic">{insight.recommendation}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {loading && rawAds.length === 0 ? (
         <div className="flex items-center gap-2 text-sm t3 py-16 justify-center">
           <Loader2 size={16} className="animate-spin" /> Loading live creative data from Meta…
@@ -125,7 +144,7 @@ function ConnectedView() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-              {creatives.map((c) => <CreativeCard key={c.id} creative={c} />)}
+              {creatives.map((c) => <CreativeCard key={c.id} creative={c} adAccountId={adAccountId} />)}
             </div>
           )}
         </>

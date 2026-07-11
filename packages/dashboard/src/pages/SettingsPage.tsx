@@ -216,8 +216,13 @@ function ClientCard({ client }: { client: Client }) {
     setEditing(false)
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (clientId === client.id) setClientId('')
+    // Deleting a client must also remove its server-side Meta session —
+    // otherwise it resurfaces on the next page load via session discovery.
+    if (client.meta.connected) {
+      await fetch(`${API}/auth/meta/disconnect?clientId=${client.id}`, { method: 'DELETE' }).catch(() => {})
+    }
     removeClient(client.id)
   }
 

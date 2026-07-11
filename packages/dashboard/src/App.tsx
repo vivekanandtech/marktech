@@ -22,7 +22,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export function syncMetaStatus(clientId: string) {
-  const { setMetaConnected, setMetaDisconnected } = useClientStore.getState()
+  const { setMetaConnected, setMetaDisconnected, assignAdAccount } = useClientStore.getState()
   return fetch(`${API}/auth/meta/status?clientId=${clientId}`)
     .then((r) => r.json())
     .then((data) => {
@@ -31,7 +31,17 @@ export function syncMetaStatus(clientId: string) {
           metaUserId: data.metaUserId,
           adAccounts: data.adAccounts,
           expiresAt: data.expiresAt,
+          accessToken: data.accessToken,
         })
+        // Apply the persisted account selection from DB if the client hasn't
+        // already chosen one. Without this, a status-path reconnect loses the
+        // selectedAdAccountId that the sessions path correctly applies.
+        if (data.selectedAdAccountId) {
+          const client = useClientStore.getState().clients.find((c) => c.id === clientId)
+          if (!client?.metaAdAccountId) {
+            assignAdAccount(clientId, data.selectedAdAccountId)
+          }
+        }
       } else {
         setMetaDisconnected(clientId)
       }

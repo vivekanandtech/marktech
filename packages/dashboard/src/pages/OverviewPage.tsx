@@ -14,12 +14,14 @@ import { FormatBreakdownChart } from '@/components/charts/FormatBreakdownChart'
 import { CreativeCard } from '@/components/creatives/CreativeCard'
 import { AlertCard } from '@/components/alerts/AlertCard'
 import { CampaignTable } from '@/components/campaigns/CampaignTable'
+import { InsightsPanel } from '@/components/insights/InsightsPanel'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { useMetaCampaigns, useMetaDailyInsights, useMetaCreatives } from '@/hooks/useMetaData'
 import { getSummaryMetrics, getChartData, getFormatBreakdown, getCreatives, getAlerts } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { transformInsightMetrics, transformMetaCampaign, safeFloat, safeInt } from '@/lib/meta-transform'
+import { InsightsPayload } from '@/store/insightsStore'
 
 // ─── Transform one daily-insights row to chart format ─────────────────────────
 function toDailyChartRow(row: any) {
@@ -85,7 +87,9 @@ const TAG_ORDER: Record<string, number> = { scale: 0, watch: 1, optimise: 2 }
 export function OverviewPage() {
   const { clientId, dateRange, market } = useFilterStore()
   const { clients } = useClientStore()
-  const connected = clients.find((c) => c.id === clientId)?.meta.connected ?? false
+  const currentClient = clients.find((c) => c.id === clientId)
+  const connected = currentClient?.meta.connected ?? false
+  const metaAdAccountId = currentClient?.metaAdAccountId ?? null
   const [tagFilter, setTagFilter] = useState<ActionTagFilter>('all')
 
   // Live Meta hooks — all are no-ops when not connected
@@ -131,6 +135,26 @@ export function OverviewPage() {
   // ── Top creatives ─────────────────────────────────────────────────────────
   const liveCreatives = rawAds.slice(0, 4).map(toCreativeShape)
   const topCreatives  = connected && liveCreatives.length > 0 ? liveCreatives : mockCreatives
+
+  // ── AI Insights payload — built from data already fetched above, sent to
+  // the backend (which calls the LLM) only when the owner clicks "Generate" ──
+  const allCreativesForInsights = rawAds.map(toCreativeShape)
+  const insightsPayload: InsightsPayload | null = connected && acct
+    ? {
+        account: {
+          spend: acct.spend, roas: acct.roas, ctr: acct.ctr, cpa: acct.cpa,
+          cpm: acct.cpm, reach: acct.reach, impressions: acct.impressions, clicks: acct.clicks,
+        },
+        campaigns: allTransformed.map((c) => ({
+          id: c.id, name: c.name, spend: c.spend, roas: c.roas, ctr: c.ctr, cpa: c.cpa,
+          frequency: c.frequency, conversions: c.conversions, objective: c.objective, status: c.status,
+        })),
+        creatives: allCreativesForInsights.map((cr) => ({
+          id: cr.id, name: cr.name, format: cr.format, spend: cr.spend, roas: cr.roas,
+          ctr: cr.ctr, frequency: cr.frequency,
+        })),
+      }
+    : null
 
   const loading = campaignsLoading || chartsLoading || creativesLoading
 
@@ -180,6 +204,9 @@ export function OverviewPage() {
         <MetricCard label="Reach"    value={formatNumber(reach)}   change={connected ? 0 : mockMetrics.reach.change}   improving={mockMetrics.reach.improving}   icon={<Eye size={15} />} />
         <MetricCard label="Avg CPA"  value={formatCurrency(cpa)}   change={connected ? 0 : mockMetrics.cpa.change}     improving={mockMetrics.cpa.improving}     icon={<Layers size={15} />} />
       </div>
+
+      {/* ── AI Insights ─────────────────────────────────────────── */}
+      {connected && <InsightsPanel payload={insightsPayload} adAccountId={metaAdAccountId} />}
 
       {/* ── Secondary metrics ───────────────────────────────────── */}
       <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
@@ -264,6 +291,7 @@ export function OverviewPage() {
           <CampaignTable
             campaigns={connected ? liveCampaigns : []}
             emptyMessage={connected ? 'Loading campaigns…' : 'Connect Meta to see live campaigns'}
+            adAccountId={metaAdAccountId}
           />
         )}
       </div>
@@ -298,7 +326,7 @@ export function OverviewPage() {
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {topCreatives.map((cr, i) => <CreativeCard key={cr.id ?? i} creative={cr} />)}
+              {topCreatives.map((cr, i) => <CreativeCard key={cr.id ?? i} creative={cr} adAccountId={metaAdAccountId} />)}
             </div>
           )}
         </div>

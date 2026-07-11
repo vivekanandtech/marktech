@@ -4,7 +4,9 @@ import clsx from 'clsx'
 import { formatCurrency, formatRoas, formatPercent } from '@/lib/formatters'
 import { TrendBadge } from '@/components/ui/TrendBadge'
 import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
+import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdRow } from './AdRow'
+import { adsetManagerUrl } from '@/lib/meta-links'
 
 interface AdSet {
   id: string; name: string; audience: string; status: string
@@ -13,8 +15,9 @@ interface AdSet {
   actionTag: string; trend: number; ads: any[]
 }
 
-export function AdSetRow({ adSet }: { adSet: AdSet }) {
+export function AdSetRow({ adSet, adAccountId }: { adSet: AdSet; adAccountId?: string | null }) {
   const [expanded, setExpanded] = useState(false)
+  const metaUrl = adAccountId ? adsetManagerUrl(adAccountId, adSet.id) : null
 
   return (
     <>
@@ -34,8 +37,9 @@ export function AdSetRow({ adSet }: { adSet: AdSet }) {
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-xs font-semibold t1">{adSet.name}</p>
                 <ActionTagBadge tag={adSet.actionTag} />
+                <p className="text-xs font-semibold t1">{adSet.name}</p>
+                {metaUrl && <MetaCtaButton href={metaUrl} size="xs" />}
               </div>
               <p className="text-[10px] t3 mt-0.5 truncate max-w-[300px]">{adSet.audience}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -61,7 +65,7 @@ export function AdSetRow({ adSet }: { adSet: AdSet }) {
         <td className="px-3 py-2.5 text-right"><TrendBadge change={adSet.trend} improving={adSet.trend > 0} /></td>
       </tr>
 
-      {expanded && adSet.ads.map((ad) => <AdRow key={ad.id} ad={ad} />)}
+      {expanded && adSet.ads.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} />)}
     </>
   )
 }

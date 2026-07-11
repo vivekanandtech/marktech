@@ -8,6 +8,7 @@ import { creativeRoutes } from './routes/creatives'
 import { alertRoutes } from './routes/alerts'
 import { authRoutes } from './routes/auth'
 import { metaAuthRoutes, metaDataRoutes } from './routes/meta-auth'
+import { insightsRoutes } from './routes/insights'
 
 export function buildApp() {
   const app = Fastify({ logger: { level: 'info' } })
@@ -55,6 +56,7 @@ export function buildApp() {
   app.register(creativeRoutes, { prefix: '/api/creatives' })
   app.register(alertRoutes, { prefix: '/api/alerts' })
   app.register(metaDataRoutes, { prefix: '/api/meta' })
+  app.register(insightsRoutes, { prefix: '/api/insights' })
 
   return app
 }

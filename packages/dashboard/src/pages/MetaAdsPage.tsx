@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, MousePointer, DollarSign, TrendingUp, Layers, Loader2, AlertTriangle, Link2 } from 'lucide-react'
+import { Eye, MousePointer, DollarSign, TrendingUp, Layers, Loader2, AlertTriangle, Link2, ExternalLink, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '@/components/ui/MetricCard'
@@ -8,9 +8,11 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { useMetaCampaigns } from '@/hooks/useMetaData'
+import { useMetaDataStore, makeCacheKey } from '@/store/metaDataStore'
 import { getSummaryMetrics, getCampaigns } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { transformInsightMetrics, transformMetaCampaign } from '@/lib/meta-transform'
+import { accountManagerUrl } from '@/lib/meta-links'
 
 type CampaignFilter = 'all' | 'active' | 'paused' | 'archived'
 type ActionTagFilter = 'all' | 'scale' | 'watch' | 'optimise'
@@ -35,16 +37,23 @@ const PAGE_SIZE = 20
 
 // ─── Connected view ───────────────────────────────────────────────────────────
 function ConnectedView() {
-  const { clientId } = useFilterStore()
+  const { clientId, dateRange } = useFilterStore()
   const { clients } = useClientStore()
   const currentClient = clients.find((c) => c.id === clientId)
   const activeAccount = currentClient?.meta.adAccounts.find((a) => a.id === currentClient?.metaAdAccountId)
+  const adAccountId = currentClient?.metaAdAccountId ?? null
+  const { invalidate } = useMetaDataStore()
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
   const [tagFilter, setTagFilter] = useState<ActionTagFilter>('all')
   const [sortKey, setSortKey] = useState<SortKey>('spend')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(0)
   const { data: rawCampaigns, accountInsights, loading, error } = useMetaCampaigns()
+
+  function handleRefresh() {
+    if (!clientId || !adAccountId) return
+    invalidate('campaigns', makeCacheKey(clientId, adAccountId, dateRange))
+  }
 
   const allCampaigns = rawCampaigns
     .map(transformMetaCampaign)
@@ -92,11 +101,32 @@ function ConnectedView() {
         </div>
 
         {/* Active ad account — changed from Settings */}
-        {activeAccount && (
-          <span className="text-xs font-medium bg-surface-2 border border-theme px-2.5 py-1.5 rounded-lg t2">
-            {activeAccount.name}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {activeAccount && (
+            <span className="text-xs font-medium bg-surface-2 border border-theme px-2.5 py-1.5 rounded-lg t2">
+              {activeAccount.name}
+            </span>
+          )}
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            title="Refresh campaign data"
+            className="flex items-center gap-1.5 text-xs font-medium border border-theme bg-surface-2 hover:bg-surface-3 disabled:opacity-50 t2 px-2.5 py-1.5 rounded-lg transition-colors"
+          >
+            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          {adAccountId && (
+            <a
+              href={accountManagerUrl(adAccountId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#1877F2] hover:bg-[#166fe5] text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <ExternalLink size={12} /> Open Ads Manager
+            </a>
+          )}
+        </div>
       </div>
 
       {/* Metrics — keep stale data visible while refetching (dateRange change) */}
@@ -168,6 +198,7 @@ function ConnectedView() {
                 sortKey={sortKey}
                 sortDir={sortDir}
                 onSort={handleSort}
+                adAccountId={adAccountId}
               />
             </ErrorBoundary>
             {hasMore && (

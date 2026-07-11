@@ -65,17 +65,54 @@
     background-color: var(--surface);
     border: 1px solid var(--border);
     border-radius: 0.75rem;
-    transition: border-color 0.15s ease;
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.03);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  }
+
+  .dark .card {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.2);
   }
 
   .card-hover:hover {
     border-color: var(--border-2);
+    box-shadow: 0 8px 20px -4px rgb(0 0 0 / 0.10), 0 2px 6px -2px rgb(0 0 0 / 0.06);
+    transform: translateY(-2px);
+  }
+
+  .dark .card-hover:hover {
+    border-color: rgb(99 102 241 / 0.3);
+    box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(99 102 241 / 0.08);
   }
 
   .surface-2 {
     background-color: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 0.5rem;
+  }
+
+  /* Subtle ambient depth behind the main scroll area — fixed, low-opacity
+     radial blobs so pages don't feel like flat solid-color panels. */
+  .ambient-bg {
+    position: relative;
+  }
+
+  .ambient-bg::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(600px circle at 0% 0%, rgb(99 102 241 / 0.06), transparent 60%),
+      radial-gradient(500px circle at 100% 0%, rgb(139 92 246 / 0.05), transparent 60%),
+      radial-gradient(700px circle at 50% 100%, rgb(16 185 129 / 0.03), transparent 60%);
+  }
+
+  .dark .ambient-bg::before {
+    background-image:
+      radial-gradient(600px circle at 0% 0%, rgb(99 102 241 / 0.10), transparent 60%),
+      radial-gradient(500px circle at 100% 0%, rgb(139 92 246 / 0.08), transparent 60%),
+      radial-gradient(700px circle at 50% 100%, rgb(16 185 129 / 0.05), transparent 60%);
   }
 }
 

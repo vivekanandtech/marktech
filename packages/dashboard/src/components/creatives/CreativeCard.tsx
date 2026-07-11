@@ -3,11 +3,20 @@ import { TrendingUp, TrendingDown, AlertTriangle, Star, ExternalLink, Image, Fil
 import clsx from 'clsx'
 import { formatCurrency, formatRoas, formatPercent } from '@/lib/formatters'
 import { FormatBadge } from '@/components/ui/Badge'
+import { useInsightsStore } from '@/store/insightsStore'
+import { adManagerUrl } from '@/lib/meta-links'
 
 interface Creative {
   id: string; name: string; format: string; thumbnailUrl: string; previewUrl?: string
   spend: number; roas: number; ctr: number; cpa: number
   frequency: number; trend: number; isTopPerformer: boolean; fatigueRisk: boolean
+}
+
+const INSIGHT_TEXT_CLASS: Record<string, string> = {
+  critical: 'text-red-600 dark:text-red-400',
+  warning: 'text-amber-600 dark:text-amber-400',
+  opportunity: 'text-emerald-600 dark:text-emerald-400',
+  info: 'text-indigo-600 dark:text-indigo-400',
 }
 
 function ThumbnailPlaceholder({ format }: { format: string }) {
@@ -20,10 +29,12 @@ function ThumbnailPlaceholder({ format }: { format: string }) {
   )
 }
 
-export function CreativeCard({ creative }: { creative: Creative }) {
+export function CreativeCard({ creative, adAccountId }: { creative: Creative; adAccountId?: string | null }) {
   const [imgFailed, setImgFailed] = useState(false)
   const trendPositive = creative.trend > 0
   const hasPreview = !!creative.previewUrl
+  const insight = useInsightsStore((s) => s.getForEntity('creative', creative.id))
+  const metaUrl = adAccountId ? adManagerUrl(adAccountId, creative.id) : null
 
   return (
     <div className={clsx(
@@ -65,22 +76,33 @@ export function CreativeCard({ creative }: { creative: Creative }) {
           <FormatBadge format={creative.format} />
         </div>
 
-        {/* Hover overlay — Preview Ad CTA */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+        {/* Hover overlay — Preview Ad + Ads Manager CTAs */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-stretch justify-end gap-1.5 p-3">
           {hasPreview ? (
             <a
               href={creative.previewUrl}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1.5 text-xs text-white font-medium bg-white/20 hover:bg-white/30 backdrop-blur-sm px-3 py-1.5 rounded-lg transition-colors w-full justify-center"
+              className="flex items-center gap-1.5 text-xs text-white font-medium bg-white/20 hover:bg-white/30 backdrop-blur-sm px-3 py-1.5 rounded-lg transition-colors justify-center"
             >
               <ExternalLink size={11} /> Preview Ad on Facebook
             </a>
           ) : (
-            <span className="flex items-center gap-1.5 text-xs text-white/50 font-medium bg-white/5 backdrop-blur-sm px-3 py-1.5 rounded-lg w-full justify-center cursor-default">
+            <span className="flex items-center gap-1.5 text-xs text-white/50 font-medium bg-white/5 backdrop-blur-sm px-3 py-1.5 rounded-lg justify-center cursor-default">
               <ExternalLink size={11} /> No preview URL
             </span>
+          )}
+          {metaUrl && (
+            <a
+              href={metaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1.5 text-xs text-white font-medium bg-[#1877F2]/80 hover:bg-[#1877F2] backdrop-blur-sm px-3 py-1.5 rounded-lg transition-colors justify-center"
+            >
+              <ExternalLink size={11} /> Open in Ads Manager
+            </a>
           )}
         </div>
       </div>
@@ -120,6 +142,12 @@ export function CreativeCard({ creative }: { creative: Creative }) {
             <span className="ml-auto text-amber-500 dark:text-amber-400 text-[10px]">Freq {creative.frequency.toFixed(1)}</span>
           )}
         </div>
+
+        {insight && (
+          <p className={clsx('text-[10px] leading-snug', INSIGHT_TEXT_CLASS[insight.severity])}>
+            💡 {insight.recommendation}
+          </p>
+        )}
       </div>
     </div>
   )

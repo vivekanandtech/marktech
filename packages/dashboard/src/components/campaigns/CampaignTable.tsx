@@ -15,6 +15,7 @@ interface CampaignTableProps {
   sortKey?: SortKey
   sortDir?: SortDir
   onSort?: (key: SortKey) => void
+  adAccountId?: string | null
 }
 
 const COLUMNS: { label: string; key?: SortKey; className: string }[] = [
@@ -32,6 +33,7 @@ export function CampaignTable({
   sortKey,
   sortDir,
   onSort,
+  adAccountId,
 }: CampaignTableProps) {
   if (campaigns.length === 0) {
     return (
@@ -72,7 +74,7 @@ export function CampaignTable({
         </thead>
         <tbody>
           {campaigns.map((campaign) => (
-            <CampaignRow key={campaign.id} campaign={campaign as any} />
+            <CampaignRow key={campaign.id} campaign={campaign as any} adAccountId={adAccountId} />
           ))}
         </tbody>
       </table>

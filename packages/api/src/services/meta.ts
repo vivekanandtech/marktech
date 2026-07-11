@@ -55,6 +55,15 @@ export async function dbUpdateSelectedAccount(clientId: string, adAccountId: str
   )
 }
 
+// Permanently removes a client's Meta connection. Used by both the explicit
+// "Disconnect" action and client deletion — without this, a removed client
+// resurfaces on the next session-discovery pass because the DB row survives.
+export async function dbDeleteToken(clientId: string): Promise<void> {
+  const db = getPool()
+  if (!db) return
+  await db.query(`DELETE FROM meta_tokens WHERE client_id = $1`, [clientId])
+}
+
 export async function dbGetToken(clientId: string): Promise<{
   accessToken: string
   metaUserId: string
@@ -96,13 +105,16 @@ export async function dbGetAllSessions(): Promise<Array<{
 }>> {
   const db = getPool()
   if (!db) return []
+  // DISTINCT ON (meta_user_id) collapses duplicate rows from repeated OAuth
+  // flows by the same Meta user — keeps only the most-recently-updated row.
   const result = await db.query(
-    `SELECT client_id, meta_user_id, ad_accounts_json, ad_account_ids,
+    `SELECT DISTINCT ON (meta_user_id)
+            client_id, meta_user_id, ad_accounts_json, ad_account_ids,
             selected_ad_account_id, access_token,
             extract(epoch from expires_at) * 1000 AS expires_ms
      FROM meta_tokens
      WHERE expires_at IS NULL OR expires_at > NOW()
-     ORDER BY updated_at DESC`
+     ORDER BY meta_user_id, updated_at DESC`
   )
   return result.rows.map((row) => ({
     clientId:             row.client_id,
@@ -269,54 +281,49 @@ export async function getCampaignDetail(
   token: string,
   dateRange = '30D'
 ): Promise<any[]> {
-  // Don't embed creative{} in the ads fetch — it triggers Meta's "reduce data"
-  // error on campaigns with many ads. Creative thumbnails are cosmetic; losing
-  // them is better than the whole expansion failing.
-  const adsetFields = 'id,name,campaign_id,status,daily_budget,targeting,effective_status'
-  const adFields    = 'id,name,status,adset_id,campaign_id,effective_status'
-  const insightTime = JSON.stringify(toTimeRange(dateRange))
+  // Embed insights directly in the adsets/ads list requests using Meta's nested
+  // field syntax: insights{field1,field2,...}. This halves the API call count
+  // (4 → 2) and avoids the "User request limit reached" error that triggered
+  // when we fired 4 parallel calls per expansion.
+  // time_range is a top-level query param — Meta applies it to nested insight
+  // edges automatically, no need to embed JSON inside the fields string.
+  const insightFields = BASE_INSIGHT_FIELDS.join(',')
+  const timeRangeParam = encodeURIComponent(JSON.stringify(toTimeRange(dateRange)))
 
-  const adsetInsightParams = new URLSearchParams({
-    fields: LEVEL_FIELDS.adset.join(','),
-    time_range: insightTime,
-    level: 'adset',
-    limit: '200',
-    access_token: token,
-  })
-  const adInsightParams = new URLSearchParams({
-    fields: LEVEL_FIELDS.ad.join(','),
-    time_range: insightTime,
-    level: 'ad',
-    limit: '200',
-    access_token: token,
-  })
+  const adsetFields = `id,name,campaign_id,status,daily_budget,targeting,effective_status,insights{${insightFields}}`
+  const adFields    = `id,name,status,adset_id,campaign_id,effective_status,insights{${insightFields}}`
 
-  // Each request is guarded individually — one throttled/failed call should not
-  // wipe the entire expansion for the other levels.
-  const safe = async (fn: () => Promise<any[]>): Promise<any[]> => {
-    try { return await fn() } catch { return [] }
+  const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
+    try { return await fn() }
+    catch (err: any) {
+      console.error(`[getCampaignDetail] ${label} failed for campaign ${campaignId}:`, err.message)
+      return []
+    }
   }
 
-  const [adsets, adsetInsights, ads, adInsights] = await Promise.all([
-    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=200&access_token=${token}`)),
-    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/insights?${adsetInsightParams}`)),
-    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&limit=200&access_token=${token}`)),
-    safe(() => fetchAllPages(`${GRAPH}/${campaignId}/insights?${adInsightParams}`)),
+  // 2 calls instead of 4 — each returns the list with insights already embedded.
+  const [adsets, ads] = await Promise.all([
+    safe('adsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
+    safe('ads',    () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
   ])
+  console.log(`[getCampaignDetail] campaign ${campaignId}: adsets=${adsets.length} ads=${ads.length}`)
 
-  const adsetInsightMap = new Map(adsetInsights.map((i: any) => [i.adset_id, i]))
-  const adInsightMap    = new Map(adInsights.map((i: any) => [i.ad_id, i]))
+  // Meta returns nested insights as { data: [...], paging: {...} }.
+  // Normalise to a flat object so the transform layer sees the same shape
+  // regardless of whether insights came from a nested edge or a separate call.
+  const flatInsights = (item: any) =>
+    Array.isArray(item.insights?.data) ? item.insights.data[0] ?? null : item.insights ?? null
 
   const adsByAdset = new Map<string, any[]>()
   for (const ad of ads) {
     const list = adsByAdset.get(ad.adset_id) ?? []
-    list.push({ ...ad, insights: adInsightMap.get(ad.id) ?? null })
+    list.push({ ...ad, insights: flatInsights(ad) })
     adsByAdset.set(ad.adset_id, list)
   }
 
   return adsets.map((as: any) => ({
     ...as,
-    insights: adsetInsightMap.get(as.id) ?? null,
+    insights: flatInsights(as),
     ads: adsByAdset.get(as.id) ?? [],
   }))
 }

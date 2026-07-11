@@ -3,11 +3,14 @@ import { ChevronRight, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import { formatCurrency, formatRoas, formatPercent } from '@/lib/formatters'
 import { TrendBadge } from '@/components/ui/TrendBadge'
-import { ActionTagBadge, CampaignTypeBadge, MarketBadge, StatusBadge } from '@/components/ui/Badge'
+import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
+import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdSetRow } from './AdSetRow'
 import { useCampaignDetail } from '@/hooks/useMetaData'
 import { useFilterStore } from '@/store/filterStore'
 import { transformMetaAdSet } from '@/lib/meta-transform'
+import { useInsightsStore } from '@/store/insightsStore'
+import { campaignManagerUrl } from '@/lib/meta-links'
 
 interface Campaign {
   id: string; platform: string; name: string; type: string; market: string; status: string; objective: string
@@ -16,14 +19,26 @@ interface Campaign {
   actionTag: string; trend: number; adSets: any[]
 }
 
-export function CampaignRow({ campaign }: { campaign: Campaign }) {
+const INSIGHT_TEXT_CLASS: Record<string, string> = {
+  critical: 'text-red-600 dark:text-red-400',
+  warning: 'text-amber-600 dark:text-amber-400',
+  opportunity: 'text-emerald-600 dark:text-emerald-400',
+  info: 'text-indigo-600 dark:text-indigo-400',
+}
+
+export function CampaignRow({ campaign, adAccountId }: { campaign: Campaign; adAccountId?: string | null }) {
   const [expanded, setExpanded] = useState(false)
   const { dateRange } = useFilterStore()
 
+  const insight = useInsightsStore((s) => s.getForEntity('campaign', campaign.id))
+  const metaUrl = adAccountId ? campaignManagerUrl(adAccountId, campaign.id) : null
+
   // Lazy-load ad sets only when the row is expanded — avoids fetching all
-  // ad sets/ads for 800+ campaigns upfront.
+  // ad sets/ads for 800+ campaigns upfront. Only attempted for live (connected)
+  // campaigns — adAccountId is absent in mock/demo mode, where campaign.adSets
+  // already holds the static nested data and needs no fetch.
   const { adSets, loading: loadingDetail, error: detailError } = useCampaignDetail(
-    expanded ? campaign.id : null,
+    expanded && adAccountId ? campaign.id : null,
     dateRange
   )
 
@@ -61,17 +76,21 @@ export function CampaignRow({ campaign }: { campaign: Campaign }) {
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-semibold t1">{campaign.name}</p>
                 <ActionTagBadge tag={campaign.actionTag} />
+                <p className="text-sm font-semibold t1">{campaign.name}</p>
+                {metaUrl && <MetaCtaButton href={metaUrl} size="xs" />}
               </div>
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                <CampaignTypeBadge type={campaign.type} />
-                <MarketBadge market={campaign.market} />
                 <StatusBadge status={campaign.status} />
                 <span className="text-[10px] t3">
                   {loadingDetail ? '…' : `${displayAdSets.length} ad sets`} · {formatCurrency(campaign.dailyBudget)}/day
                 </span>
               </div>
+              {insight && (
+                <p className={clsx('text-[10px] mt-1', INSIGHT_TEXT_CLASS[insight.severity])}>
+                  💡 {insight.message} {insight.recommendation}
+                </p>
+              )}
             </div>
           </div>
         </td>
@@ -116,7 +135,7 @@ export function CampaignRow({ campaign }: { campaign: Campaign }) {
             <td colSpan={6} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
           </tr>
         ) : (
-          displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} />)
+          displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={adAccountId} />)
         )
       )}
     </>
