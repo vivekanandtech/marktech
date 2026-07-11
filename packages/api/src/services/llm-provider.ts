@@ -1,9 +1,14 @@
 import OpenAI from 'openai'
 
-// Single isolation point for the LLM call. Swapping providers later (e.g. to
-// Claude) means rewriting only the inside of this function — callers always
-// get back parsed, schema-validated JSON regardless of which provider runs.
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy-initialized so a missing OPENAI_API_KEY only throws when the insights
+// endpoint is actually called, not at server startup (which would crash Render).
+let _client: OpenAI | null = null
+function getClient(): OpenAI {
+  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set — add it to Render environment variables')
+  if (!_client) _client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _client
+}
+
 const MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini'
 
 export async function callStructured<T>(
@@ -12,7 +17,7 @@ export async function callStructured<T>(
   schema: Record<string, unknown>,
   schemaName: string
 ): Promise<T> {
-  if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set')
+  const client = getClient()
 
   const completion = await client.chat.completions.create({
     model: MODEL,
