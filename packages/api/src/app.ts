@@ -8,6 +8,8 @@ import { creativeRoutes } from './routes/creatives'
 import { alertRoutes } from './routes/alerts'
 import { authRoutes } from './routes/auth'
 import { metaAuthRoutes, metaDataRoutes } from './routes/meta-auth'
+import { shopifyAuthRoutes, shopifyDataRoutes } from './routes/shopify'
+import { googleAuthRoutes, googleDataRoutes } from './routes/google-auth'
 import { insightsRoutes } from './routes/insights'
 
 export function buildApp() {
@@ -46,9 +48,11 @@ export function buildApp() {
 
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }))
 
-  // Auth (login, Meta OAuth callback)
+  // Auth (login, Meta OAuth callback, Shopify OAuth callback)
   app.register(authRoutes, { prefix: '/auth' })
   app.register(metaAuthRoutes, { prefix: '/auth' })
+  app.register(shopifyAuthRoutes, { prefix: '/auth' })
+  app.register(googleAuthRoutes, { prefix: '/auth' })
 
   // API data routes
   app.register(dashboardRoutes, { prefix: '/api/dashboard' })
@@ -56,6 +60,8 @@ export function buildApp() {
   app.register(creativeRoutes, { prefix: '/api/creatives' })
   app.register(alertRoutes, { prefix: '/api/alerts' })
   app.register(metaDataRoutes, { prefix: '/api/meta' })
+  app.register(shopifyDataRoutes, { prefix: '/api/shopify' })
+  app.register(googleDataRoutes, { prefix: '/api/google' })
   app.register(insightsRoutes, { prefix: '/api/insights' })
 
   return app

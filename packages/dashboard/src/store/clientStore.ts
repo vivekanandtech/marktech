@@ -27,6 +27,40 @@ const EMPTY_META: MetaConnection = {
   expiresAt: null,
 }
 
+export interface ShopifyConnection {
+  connected: boolean
+  shopDomain: string | null
+  shopName: string | null
+}
+
+const EMPTY_SHOPIFY: ShopifyConnection = {
+  connected: false,
+  shopDomain: null,
+  shopName: null,
+}
+
+export interface GoogleCustomer {
+  id: string
+  name: string
+  descriptiveName: string
+  currencyCode: string
+  isManager: boolean
+}
+
+export interface GoogleConnection {
+  connected: boolean
+  customerId: string | null     // selected Google Ads customer ID
+  customerName: string | null
+  customers: GoogleCustomer[]
+}
+
+const EMPTY_GOOGLE: GoogleConnection = {
+  connected: false,
+  customerId: null,
+  customerName: null,
+  customers: [],
+}
+
 export interface Client {
   id: string
   name: string
@@ -36,6 +70,8 @@ export interface Client {
   createdAt: string
   metaAdAccountId: string | null   // which of this client's enabled ad accounts to show
   meta: MetaConnection             // this client's own Meta connection
+  shopify: ShopifyConnection       // this client's Shopify store connection
+  google: GoogleConnection         // this client's Google Ads connection
 }
 
 const COLORS = [
@@ -68,6 +104,11 @@ interface ClientStore {
   setMetaDisconnected: (clientId: string) => void
   setEnabledAdAccountIds: (clientId: string, ids: string[]) => void
   reopenAdAccountSelector: (clientId: string) => void
+  setShopifyConnected: (clientId: string, data: { shopDomain: string; shopName: string }) => void
+  setShopifyDisconnected: (clientId: string) => void
+  setGoogleConnected: (clientId: string, data: { customerId: string; customerName: string; customers: GoogleCustomer[] }) => void
+  setGoogleDisconnected: (clientId: string) => void
+  adoptGoogleSession: (session: { clientId: string; customerId: string | null; customerName: string | null; customers: GoogleCustomer[] }) => void
   adoptSession: (session: {
     clientId: string
     metaUserId: string
@@ -93,6 +134,8 @@ export const useClientStore = create<ClientStore>()(
           createdAt: new Date().toISOString(),
           metaAdAccountId: null,
           meta: { ...EMPTY_META },
+          shopify: { ...EMPTY_SHOPIFY },
+          google: { ...EMPTY_GOOGLE },
         }
         set({ clients: [...get().clients, client] })
         return client
@@ -178,6 +221,52 @@ export const useClientStore = create<ClientStore>()(
           ),
         }),
 
+      setShopifyConnected: (clientId, { shopDomain, shopName }) =>
+        set({
+          clients: get().clients.map((c) =>
+            c.id === clientId
+              ? { ...c, shopify: { connected: true, shopDomain, shopName } }
+              : c
+          ),
+        }),
+
+      setShopifyDisconnected: (clientId) =>
+        set({
+          clients: get().clients.map((c) =>
+            c.id === clientId ? { ...c, shopify: { ...EMPTY_SHOPIFY } } : c
+          ),
+        }),
+
+      setGoogleConnected: (clientId, { customerId, customerName, customers }) =>
+        set({
+          clients: get().clients.map((c) =>
+            c.id === clientId
+              ? { ...c, google: { connected: true, customerId, customerName, customers } }
+              : c
+          ),
+        }),
+
+      setGoogleDisconnected: (clientId) =>
+        set({
+          clients: get().clients.map((c) =>
+            c.id === clientId ? { ...c, google: { ...EMPTY_GOOGLE } } : c
+          ),
+        }),
+
+      adoptGoogleSession: (session) => {
+        const clients = get().clients
+        const existing = clients.find((c) => c.id === session.clientId)
+        if (existing) {
+          set({
+            clients: clients.map((c) =>
+              c.id === session.clientId
+                ? { ...c, google: { connected: true, customerId: session.customerId, customerName: session.customerName, customers: session.customers } }
+                : c
+            ),
+          })
+        }
+      },
+
       // Adopt a session discovered from the server — used when a new browser
       // has no local clients but the DB has an active Meta connection.
       adoptSession: (session: {
@@ -201,13 +290,25 @@ export const useClientStore = create<ClientStore>()(
           session.adAccounts[0]?.id ??
           null
 
-        const enabledIds = pickedId ? [pickedId] : existing?.meta.enabledAdAccountIds ?? null
+        // Preserve the user's existing account selection (stored in localStorage).
+        // Only override if: the server has a persisted selectedAdAccountId (DB knows better),
+        // or the user has never made a selection yet (null).
+        const enabledIds = session.selectedAdAccountId
+          ? [session.selectedAdAccountId]
+          : (existing?.meta.enabledAdAccountIds ?? (pickedId ? [pickedId] : null))
+
+        // Keep existing ad accounts if the incoming session has none — prevents
+        // the in-memory DB-fallback (which has no account names) from wiping
+        // account data that was already loaded from the OAuth URL params.
+        const resolvedAccounts = session.adAccounts.length > 0
+          ? session.adAccounts
+          : (existing?.meta.adAccounts ?? [])
 
         const metaPayload = {
           connected: true,
           metaUserId: session.metaUserId,
           accessToken: session.accessToken,
-          adAccounts: session.adAccounts,
+          adAccounts: resolvedAccounts,
           enabledAdAccountIds: enabledIds,
           expiresAt: session.expiresAt,
         }
@@ -233,6 +334,8 @@ export const useClientStore = create<ClientStore>()(
                 createdAt: new Date().toISOString(),
                 metaAdAccountId: pickedId,
                 meta: metaPayload,
+                shopify: { ...EMPTY_SHOPIFY },
+                google: { ...EMPTY_GOOGLE },
               },
             ],
           })
@@ -241,7 +344,7 @@ export const useClientStore = create<ClientStore>()(
     }),
     {
       name: 'marktech-clients',
-      version: 1,
+      version: 3,
       migrate: (persisted: any) => {
         if (!persisted?.clients) return persisted
         return {
@@ -250,6 +353,8 @@ export const useClientStore = create<ClientStore>()(
             ...c,
             metaAdAccountId: c.metaAdAccountId ?? null,
             meta: c.meta ?? { ...EMPTY_META },
+            shopify: c.shopify ?? { ...EMPTY_SHOPIFY },
+            google: c.google ?? { ...EMPTY_GOOGLE },
           })),
         }
       },

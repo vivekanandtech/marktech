@@ -2,7 +2,7 @@ import { useEffect, useState, FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   CheckCircle, XCircle, Loader2, Link2, Unlink,
-  Plus, Trash2, Pencil, X, Check, ChevronDown,
+  Plus, Trash2, Pencil, X, Check, ChevronDown, ShoppingBag,
 } from 'lucide-react'
 import { useClientStore, type Client } from '@/store/clientStore'
 import { useFilterStore } from '@/store/filterStore'
@@ -201,6 +201,249 @@ function ClientMetaSection({ client }: { client: Client }) {
   )
 }
 
+// ─── Per-client Shopify connection ────────────────────────────────────────────
+// Uses Shopify Custom App Admin API tokens (shpat_...) — no OAuth needed.
+// User gets the token from: Store Admin → Settings → Apps → Develop apps → [app] → API credentials → Install app
+function ClientShopifySection({ client }: { client: Client }) {
+  const { setShopifyConnected, setShopifyDisconnected } = useClientStore()
+  const [shop, setShop] = useState('')
+  const [token, setToken] = useState('')
+  const [connecting, setConnecting] = useState(false)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const { connected, shopDomain, shopName } = client.shopify ?? { connected: false, shopDomain: null, shopName: null }
+
+  async function connect() {
+    if (!shop.trim() || !token.trim()) return
+    setConnecting(true)
+    setConnectError(null)
+    try {
+      const r = await fetch(`${API}/auth/shopify/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id, shopDomain: shop.trim(), accessToken: token.trim() }),
+      })
+      const data = await r.json()
+      if (!r.ok || data.error) throw new Error(data.error ?? 'Connection failed')
+      setShopifyConnected(client.id, { shopDomain: data.shopDomain, shopName: data.shopName })
+      setShop('')
+      setToken('')
+    } catch (e: any) {
+      setConnectError(e.message)
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  async function disconnect() {
+    setDisconnecting(true)
+    try {
+      await fetch(`${API}/auth/shopify/disconnect?clientId=${client.id}`, { method: 'DELETE' })
+      setShopifyDisconnected(client.id)
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
+  if (!connected) {
+    return (
+      <div className="mt-3 rounded-lg border border-dashed border-theme p-3 space-y-2.5">
+        <div className="flex items-center gap-1.5">
+          <ShoppingBag size={12} className="text-emerald-500" />
+          <p className="text-xs font-semibold t2">Connect Shopify store</p>
+        </div>
+
+        {/* Store slug */}
+        <div className="flex items-center rounded-lg border border-theme overflow-hidden bg-surface-3 focus-within:ring-2 focus-within:ring-emerald-500/30">
+          <span className="px-2 text-[11px] t3 shrink-0 border-r border-theme py-2">https://</span>
+          <input
+            type="text"
+            value={shop}
+            onChange={(e) => setShop(e.target.value)}
+            placeholder="dohar-india"
+            className="flex-1 px-2 py-2 text-xs t1 bg-transparent focus:outline-none min-w-0"
+          />
+          <span className="px-2 text-[11px] t3 shrink-0 border-l border-theme py-2">.myshopify.com</span>
+        </div>
+
+        {/* Admin API token */}
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && connect()}
+          placeholder="Admin API access token  (shpat_...)"
+          className="w-full px-2 py-2 text-xs t1 bg-surface-3 border border-theme rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+        />
+
+        {connectError && (
+          <p className="text-[11px] text-red-500">{connectError}</p>
+        )}
+
+        <button
+          onClick={connect}
+          disabled={!shop.trim() || !token.trim() || connecting}
+          className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg transition-colors"
+        >
+          {connecting ? <Loader2 size={12} className="animate-spin" /> : <ShoppingBag size={12} />}
+          Connect Shopify
+        </button>
+
+        <p className="text-[11px] t3 leading-relaxed">
+          Get the token from: Store Admin → Settings → Apps → Develop apps → your app → <strong>API credentials</strong> → Install app
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-theme bg-surface-2 px-3 py-2.5">
+      <div className="flex items-center gap-2">
+        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Shopify connected</span>
+        <span className="text-xs t3">· {shopName ?? shopDomain}</span>
+      </div>
+      <button
+        onClick={disconnect}
+        disabled={disconnecting}
+        className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50"
+      >
+        {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+        Disconnect
+      </button>
+    </div>
+  )
+}
+
+// ─── Per-client Google Ads connection ─────────────────────────────────────────
+// Uses Google OAuth2 — click Connect → server redirects to Google consent screen.
+function ClientGoogleSection({ client }: { client: Client }) {
+  const { setGoogleConnected, setGoogleDisconnected } = useClientStore()
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [customerId, setCustomerId] = useState('')
+  const [customerName, setCustomerName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const google = client.google ?? { connected: false, customerName: null, customerId: null, customers: [] }
+
+  async function disconnect() {
+    setDisconnecting(true)
+    try {
+      await fetch(`${API}/auth/google/disconnect?clientId=${client.id}`, { method: 'DELETE' })
+      setGoogleDisconnected(client.id)
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
+  async function saveCustomer() {
+    const id = customerId.replace(/-/g, '').trim()
+    if (!id) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const r = await fetch(`${API}/auth/google/select-customer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id, customerId: id, customerName: customerName.trim() || id }),
+      })
+      const data = await r.json()
+      if (!r.ok || data.error) throw new Error(data.error ?? 'Failed to save')
+      setGoogleConnected(client.id, { customerId: id, customerName: customerName.trim() || id, customers: [] })
+    } catch (e: any) {
+      setSaveError(e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Not connected at all — show OAuth button
+  if (!google.connected) {
+    return (
+      <div className="mt-3 rounded-lg border border-dashed border-theme p-3 space-y-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="shrink-0">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+            <p className="text-xs font-semibold t2">Connect Google Ads</p>
+          </div>
+          <a
+            href={`${API}/auth/google?clientId=${client.id}`}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Link2 size={12} />
+            Connect
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  // Connected but no customer ID chosen yet — show manual entry form
+  if (!google.customerId) {
+    return (
+      <div className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 space-y-2.5">
+        <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Google authorised — enter your Customer ID</p>
+        <p className="text-[11px] t3 leading-relaxed">
+          Find it in Google Ads top-right account switcher (e.g. <span className="font-mono">846-837-3306</span>). Dashes are optional.
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={customerId}
+            onChange={(e) => setCustomerId(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && saveCustomer()}
+            placeholder="e.g. 846-837-3306"
+            className="flex-1 px-2 py-1.5 text-xs t1 bg-surface-3 border border-theme rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-mono"
+          />
+          <button
+            onClick={saveCustomer}
+            disabled={!customerId.trim() || saving}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white px-3 py-1.5 rounded-lg transition-colors shrink-0"
+          >
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+            Save
+          </button>
+        </div>
+        <input
+          type="text"
+          value={customerName}
+          onChange={(e) => setCustomerName(e.target.value)}
+          placeholder="Account name (optional, e.g. Sheetal Batra)"
+          className="w-full px-2 py-1.5 text-xs t1 bg-surface-3 border border-theme rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+        />
+        {saveError && <p className="text-[11px] text-red-500">{saveError}</p>}
+        <button onClick={disconnect} className="text-[11px] text-red-400 hover:text-red-500 transition-colors">
+          Disconnect and start over
+        </button>
+      </div>
+    )
+  }
+
+  // Fully connected
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-theme bg-surface-2 px-3 py-2.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shrink-0" />
+        <span className="text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">Google Ads connected</span>
+        <span className="text-xs t3 truncate">· {google.customerName ?? google.customerId}</span>
+      </div>
+      <button
+        onClick={disconnect}
+        disabled={disconnecting}
+        className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50 shrink-0"
+      >
+        {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+        Disconnect
+      </button>
+    </div>
+  )
+}
+
 // ─── Client card ──────────────────────────────────────────────────────────────
 function ClientCard({ client }: { client: Client }) {
   const { removeClient, updateClient } = useClientStore()
@@ -282,6 +525,8 @@ function ClientCard({ client }: { client: Client }) {
       </div>
 
       <ClientMetaSection client={client} />
+      <ClientShopifySection client={client} />
+      <ClientGoogleSection client={client} />
     </div>
   )
 }
@@ -328,14 +573,55 @@ function AddClientForm({ onDone }: { onDone: (id: string) => void }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export function SettingsPage() {
-  const { clients, setMetaConnected } = useClientStore()
+  const { clients, setMetaConnected, setShopifyConnected, setGoogleConnected } = useClientStore()
   const { setClientId } = useFilterStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const [showAddForm, setShowAddForm] = useState(false)
 
   const oauthResult = searchParams.get('meta')
+  const shopifyResult = searchParams.get('shopify')
+  const googleResult = searchParams.get('google')
   const oauthReason = searchParams.get('reason')
   const oauthClientId = searchParams.get('clientId')
+
+  // Handle Shopify OAuth callback
+  useEffect(() => {
+    if (shopifyResult === 'connected') {
+      const shopInfoRaw = searchParams.get('shopInfo')
+      if (oauthClientId && shopInfoRaw) {
+        try {
+          const shopInfo = JSON.parse(decodeURIComponent(shopInfoRaw))
+          setShopifyConnected(oauthClientId, { shopDomain: shopInfo.domain, shopName: shopInfo.name })
+          setClientId(oauthClientId)
+        } catch { /* ignore */ }
+      }
+      const t = setTimeout(() => setSearchParams({}, { replace: true }), 5000)
+      return () => clearTimeout(t)
+    }
+    if (shopifyResult === 'error') {
+      const t = setTimeout(() => setSearchParams({}, { replace: true }), 5000)
+      return () => clearTimeout(t)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopifyResult])
+
+  // Handle Google OAuth callback — tokens saved server-side, user still needs to enter customer ID
+  useEffect(() => {
+    if (googleResult === 'connected') {
+      if (oauthClientId) {
+        // Mark as Google-authorised (connected=true, customerId=null) so the customer ID form appears
+        setGoogleConnected(oauthClientId, { customerId: null as any, customerName: null as any, customers: [] })
+        setClientId(oauthClientId)
+      }
+      const t = setTimeout(() => setSearchParams({}, { replace: true }), 8000)
+      return () => clearTimeout(t)
+    }
+    if (googleResult === 'error') {
+      const t = setTimeout(() => setSearchParams({}, { replace: true }), 5000)
+      return () => clearTimeout(t)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleResult])
 
   useEffect(() => {
     if (oauthResult === 'connected') {
@@ -395,6 +681,42 @@ export function SettingsPage() {
           <XCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
           <div>
             <p className="text-sm font-semibold text-red-600 dark:text-red-400">Meta connection failed</p>
+            {oauthReason && <p className="text-xs t3 mt-0.5">{decodeURIComponent(oauthReason)}</p>}
+          </div>
+        </div>
+      )}
+      {shopifyResult === 'connected' && (
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+          <CheckCircle size={18} className="text-emerald-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">Shopify store connected successfully</p>
+            <p className="text-xs t3 mt-0.5">Analytics are now available in the Shopify section</p>
+          </div>
+        </div>
+      )}
+      {shopifyResult === 'error' && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <XCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-600 dark:text-red-400">Shopify connection failed</p>
+            {oauthReason && <p className="text-xs t3 mt-0.5">{decodeURIComponent(oauthReason)}</p>}
+          </div>
+        </div>
+      )}
+      {googleResult === 'connected' && (
+        <div className="flex items-start gap-3 rounded-xl border border-blue-500/30 bg-blue-500/10 p-4">
+          <CheckCircle size={18} className="text-blue-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">Google Ads connected successfully</p>
+            <p className="text-xs t3 mt-0.5">Your Google Ads data is now available in the Google Ads section</p>
+          </div>
+        </div>
+      )}
+      {googleResult === 'error' && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+          <XCircle size={18} className="text-red-500 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-600 dark:text-red-400">Google Ads connection failed</p>
             {oauthReason && <p className="text-xs t3 mt-0.5">{decodeURIComponent(oauthReason)}</p>}
           </div>
         </div>

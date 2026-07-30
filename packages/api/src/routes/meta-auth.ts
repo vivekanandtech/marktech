@@ -43,6 +43,10 @@ export async function metaAuthRoutes(app: FastifyInstance) {
         const tokenData = {
           accessToken:  longToken,
           adAccountIds: adAccounts.map((a: any) => a.id),
+          adAccounts:   adAccounts.map((a: any) => ({
+            id: a.id, name: a.name, currency: a.currency,
+            business: a.business ? { id: a.business.id, name: a.business.name } : null,
+          })),
           metaUserId,
           expiresAt:    Date.now() + expiresIn * 1000,
         }
@@ -85,11 +89,13 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
     // 2. Fall back to DB (covers restarts and cross-device logins)
     if (!stored) {
-      const row = await dbGetToken(clientId)
-      if (row) {
-        stored = row
-        tokenStore.set(clientId, row)  // warm cache
-      }
+      try {
+        const row = await dbGetToken(clientId)
+        if (row) {
+          stored = row
+          tokenStore.set(clientId, row)  // warm cache
+        }
+      } catch { /* DB unavailable — stay with in-memory result */ }
     }
 
     if (!stored) return { connected: false }
@@ -100,8 +106,10 @@ export async function metaAuthRoutes(app: FastifyInstance) {
       return { connected: false, reason: 'token_expired' }
     }
 
-    // Use cached ad accounts from DB to avoid an extra Meta API call
-    const dbRow = await dbGetToken(clientId)
+    // Use cached ad accounts from DB; fall back to a live Meta call if DB is down
+    let dbRow: Awaited<ReturnType<typeof dbGetToken>> = null
+    try { dbRow = await dbGetToken(clientId) } catch { /* DB unavailable */ }
+
     const adAccounts = dbRow?.adAccounts?.length
       ? dbRow.adAccounts
       : await getAdAccounts(stored.accessToken)
@@ -119,8 +127,23 @@ export async function metaAuthRoutes(app: FastifyInstance) {
   // Return all active Meta sessions — used by new browsers to auto-populate
   // the client store without requiring re-authentication.
   app.get('/meta/sessions', async () => {
-    const sessions = await dbGetAllSessions()
-    return { sessions }
+    try {
+      const sessions = await dbGetAllSessions()
+      return { sessions }
+    } catch {
+      // DB unavailable — fall back to in-memory store so fresh OAuth on the
+      // same server instance still surfaces the session.
+      const sessions = [...tokenStore.entries()].map(([clientId, data]) => ({
+        clientId,
+        metaUserId: data.metaUserId,
+        adAccounts: data.adAccounts ?? [],
+        adAccountIds: data.adAccountIds,
+        selectedAdAccountId: null,
+        accessToken: data.accessToken,
+        expiresAt: data.expiresAt,
+      }))
+      return { sessions }
+    }
   })
 
   // Save which ad account the user selected — keeps new browsers in sync
@@ -129,7 +152,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { clientId, adAccountId } = request.body
       if (!clientId || !adAccountId) return reply.code(400).send({ error: 'clientId and adAccountId required' })
-      await dbUpdateSelectedAccount(clientId, adAccountId)
+      try { await dbUpdateSelectedAccount(clientId, adAccountId) } catch { /* DB unavailable — no-op */ }
       return { ok: true }
     }
   )
@@ -156,12 +179,13 @@ async function resolveToken(clientId: string, headerToken?: string): Promise<str
   const mem = tokenStore.get(clientId)
   if (mem) return mem.accessToken
   // 3. DB — covers other browsers/users who never did the OAuth themselves
-  const row = await dbGetToken(clientId)
-  if (row) {
-    // Warm the in-memory cache so next request is fast
-    tokenStore.set(clientId, row)
-    return row.accessToken
-  }
+  try {
+    const row = await dbGetToken(clientId)
+    if (row) {
+      tokenStore.set(clientId, { ...row, adAccounts: row.adAccounts ?? [] })
+      return row.accessToken
+    }
+  } catch { /* DB unavailable */ }
   return null
 }
 

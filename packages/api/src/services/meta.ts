@@ -9,6 +9,7 @@ const REDIRECT_URI = process.env.META_REDIRECT_URI!
 export const tokenStore = new Map<string, {
   accessToken: string
   adAccountIds: string[]
+  adAccounts: Array<{ id: string; name: string; currency: string; business?: any }>
   metaUserId: string
   expiresAt: number
 }>()

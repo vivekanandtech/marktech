@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, TrendingUp, Target, Image, Bell, Settings,
-  ChevronRight, Zap,
+  ChevronRight, Zap, ShoppingBag,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useFilterStore } from '@/store/filterStore'
@@ -22,6 +22,10 @@ const NAV: NavGroup[] = [
   {
     heading: 'Google Ads',
     items: [{ label: 'Performance', to: '/google', icon: <Target size={16} /> }],
+  },
+  {
+    heading: 'Shopify',
+    items: [{ label: 'Analytics', to: '/shopify', icon: <ShoppingBag size={16} /> }],
   },
 ]
 

@@ -1,0 +1,266 @@
+import { FastifyInstance } from 'fastify'
+import {
+  getGoogleOAuthUrl, exchangeGoogleCode, getValidAccessToken,
+  listAccessibleCustomers, getGoogleCampaigns, getGoogleAdGroups,
+  getGoogleAds, getGoogleAccountInsights, getGoogleDailyInsights,
+  googleTokenStore, GoogleCustomer,
+  dbSaveGoogleToken, dbGetGoogleToken, dbDeleteGoogleToken,
+  dbGetAllGoogleSessions, dbUpdateGoogleCustomer,
+} from '../services/google'
+
+// ─── Auth routes (public — registered under /auth) ───────────────────────────
+
+export async function googleAuthRoutes(app: FastifyInstance) {
+
+  // Step 1: Redirect to Google OAuth consent screen
+  app.get<{ Querystring: { clientId?: string } }>('/google', async (request, reply) => {
+    const clientId = request.query.clientId ?? 'default'
+    return reply.redirect(getGoogleOAuthUrl(clientId))
+  })
+
+  // Step 2: Google redirects back here with ?code=xxx&state=clientId
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+    '/google/callback',
+    async (request, reply) => {
+      const { code, state, error } = request.query
+      const FRONTEND = process.env.FRONTEND_URL ?? 'http://localhost:5173'
+
+      if (error || !code) {
+        return reply.redirect(
+          `${FRONTEND}/settings?google=error&clientId=${encodeURIComponent(state ?? 'default')}&reason=${encodeURIComponent(error ?? 'no_code')}`
+        )
+      }
+
+      const clientId = state ?? 'default'
+      try {
+        const { accessToken, refreshToken, expiresIn } = await exchangeGoogleCode(code)
+        const accessTokenExpiry = Date.now() + expiresIn * 1000
+
+        // Save tokens — skip listAccessibleCustomers (requires approved dev token).
+        // The user will enter their Customer ID manually in Settings.
+        const tokenData = {
+          refreshToken,
+          accessToken,
+          accessTokenExpiry,
+          customerId: null,
+          customerName: null,
+          customers: [],
+        }
+
+        googleTokenStore.set(clientId, tokenData)
+        await dbSaveGoogleToken(clientId, tokenData).catch((err) =>
+          app.log.error({ err: err.message }, 'Failed to persist Google token')
+        )
+
+        app.log.info({ clientId }, 'Google token stored — awaiting customer ID selection')
+
+        return reply.redirect(
+          `${FRONTEND}/settings?google=connected&clientId=${encodeURIComponent(clientId)}`
+        )
+      } catch (err: any) {
+        app.log.error(err, 'Google OAuth callback failed')
+        return reply.redirect(
+          `${FRONTEND}/settings?google=error&clientId=${encodeURIComponent(clientId)}&reason=${encodeURIComponent(err.message)}`
+        )
+      }
+    }
+  )
+
+  // Diagnostic — tests dev token + customer list without full OAuth
+  app.get<{ Querystring: { token?: string } }>('/google/diag', async (request) => {
+    const accessToken = request.query.token ?? ''
+    if (!accessToken) return { error: 'pass ?token=<access_token>' }
+    const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? ''
+    const headers = {
+      'Authorization': `Bearer ${accessToken}`,
+      'developer-token': devToken,
+      'Content-Type': 'application/json',
+    }
+    const res = await fetch('https://googleads.googleapis.com/v20/customers:listAccessibleCustomers', { headers })
+    const text = await res.text()
+    return { status: res.status, devTokenLength: devToken.length, body: text.slice(0, 500) }
+  })
+
+  // Get connection status
+  app.get<{ Querystring: { clientId?: string } }>('/google/status', async (request) => {
+    const clientId = request.query.clientId ?? 'default'
+    // Check in-memory first, then fall back to DB
+    const mem = googleTokenStore.get(clientId)
+    let row: Awaited<ReturnType<typeof dbGetGoogleToken>> = null
+    try { row = await dbGetGoogleToken(clientId) } catch { /* DB unavailable */ }
+    const data = row ?? (mem ? { customerId: mem.customerId, customerName: mem.customerName, customers: mem.customers } : null)
+    if (!data) return { connected: false }
+    return {
+      connected: true,
+      customerId: data.customerId,
+      customerName: data.customerName,
+      customers: data.customers,
+    }
+  })
+
+  // Return all active Google sessions — new browsers use this to auto-populate
+  app.get('/google/sessions', async () => {
+    try {
+      const sessions = await dbGetAllGoogleSessions()
+      return { sessions }
+    } catch {
+      // DB unavailable — fall back to in-memory store
+      const sessions = [...googleTokenStore.entries()].map(([clientId, data]) => ({
+        clientId,
+        customerId: data.customerId ?? null,
+        customerName: data.customerName ?? null,
+        customers: data.customers ?? [],
+      }))
+      return { sessions }
+    }
+  })
+
+  // Save which Google customer the user selected
+  app.post<{ Body: { clientId: string; customerId: string; customerName: string } }>(
+    '/google/select-customer',
+    async (request, reply) => {
+      const { clientId, customerId, customerName } = request.body
+      if (!clientId || !customerId) return reply.code(400).send({ error: 'clientId and customerId required' })
+
+      // Update in-memory cache
+      const cached = googleTokenStore.get(clientId)
+      if (cached) googleTokenStore.set(clientId, { ...cached, customerId, customerName })
+
+      await dbUpdateGoogleCustomer(clientId, customerId, customerName)
+      return { ok: true }
+    }
+  )
+
+  // Disconnect — clears memory + DB
+  app.delete<{ Querystring: { clientId?: string } }>('/google/disconnect', async (request) => {
+    const clientId = request.query.clientId ?? 'default'
+    googleTokenStore.delete(clientId)
+    await dbDeleteGoogleToken(clientId).catch((err) =>
+      app.log.error({ err: err.message }, 'Failed to delete Google token from DB')
+    )
+    return { success: true }
+  })
+}
+
+// ─── Data routes (JWT-protected, registered under /api/google) ───────────────
+
+async function resolveGoogleToken(clientId: string): Promise<{
+  accessToken: string
+  customerId: string
+  managerId: string | undefined
+} | null> {
+  const cached = googleTokenStore.get(clientId)
+  const customerId = cached?.customerId ?? (await dbGetGoogleToken(clientId))?.customerId ?? null
+  if (!customerId) return null
+
+  const accessToken = await getValidAccessToken(clientId)
+  if (!accessToken) return null
+
+  // Don't force login-customer-id — only use it if the account is actually
+  // a sub-account of the MCC. Callers can pass it explicitly when needed.
+  return { accessToken, customerId, managerId: undefined }
+}
+
+export async function googleDataRoutes(app: FastifyInstance) {
+
+  // Account-level + campaign-level data
+  app.get<{ Querystring: { clientId?: string; dateRange?: string } }>(
+    '/campaigns',
+    async (request, reply) => {
+      const { clientId = 'default', dateRange = '30D' } = request.query
+      const auth = await resolveGoogleToken(clientId)
+      if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
+
+      const safe = async (label: string, fn: () => Promise<any>): Promise<any> => {
+        try { return await fn() }
+        catch (err: any) {
+          app.log.error({ err: err.message, label }, 'Google Ads API call failed')
+          return null
+        }
+      }
+
+      const [campaigns, accountInsights] = await Promise.all([
+        safe('campaigns', () => getGoogleCampaigns(auth.customerId, auth.accessToken, dateRange, auth.managerId)),
+        safe('accountInsights', () => getGoogleAccountInsights(auth.customerId, auth.accessToken, dateRange, auth.managerId)),
+      ])
+
+      return {
+        data: campaigns ?? [],
+        accountInsights: accountInsights ?? null,
+        customerId: auth.customerId,
+        source: 'google_ads_api',
+      }
+    }
+  )
+
+  // Ad groups for a specific campaign (lazy-loaded on expand)
+  app.get<{ Querystring: { clientId?: string; campaignId: string; dateRange?: string } }>(
+    '/ad-groups',
+    async (request, reply) => {
+      const { clientId = 'default', campaignId, dateRange = '30D' } = request.query
+      const auth = await resolveGoogleToken(clientId)
+      if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
+
+      try {
+        const [adGroups, adsRaw] = await Promise.all([
+          getGoogleAdGroups(auth.customerId, campaignId, auth.accessToken, dateRange, auth.managerId),
+          // Fetch all ads for this campaign keyed by ad_group.id
+          (async () => {
+            try {
+              const dateFilter = dateRange
+              const allAds: any[] = []
+              const adGroupRows = await getGoogleAdGroups(auth.customerId, campaignId, auth.accessToken, dateRange, auth.managerId)
+              await Promise.all(
+                adGroupRows.map(async (ag: any) => {
+                  const agId = ag.adGroup?.id
+                  if (!agId) return
+                  const ads = await getGoogleAds(auth.customerId, agId, auth.accessToken, dateFilter, auth.managerId)
+                  allAds.push(...ads.map((a: any) => ({ ...a, _adGroupId: agId })))
+                })
+              )
+              return allAds
+            } catch { return [] }
+          })(),
+        ])
+
+        const adsByGroup = new Map<string, any[]>()
+        for (const ad of adsRaw) {
+          const agId = ad._adGroupId ?? ad.adGroup?.id
+          if (!agId) continue
+          const list = adsByGroup.get(agId) ?? []
+          list.push(ad)
+          adsByGroup.set(agId, list)
+        }
+
+        return {
+          adGroups: adGroups.map((ag: any) => ({
+            ...ag,
+            ads: adsByGroup.get(ag.adGroup?.id) ?? [],
+          })),
+          source: 'google_ads_api',
+        }
+      } catch (err: any) {
+        app.log.error({ err: err.message, campaignId }, 'getGoogleAdGroups failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // Daily time-series insights — for Overview charts
+  app.get<{ Querystring: { clientId?: string; dateRange?: string } }>(
+    '/daily-insights',
+    async (request, reply) => {
+      const { clientId = 'default', dateRange = '30D' } = request.query
+      const auth = await resolveGoogleToken(clientId)
+      if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
+
+      try {
+        const rows = await getGoogleDailyInsights(auth.customerId, auth.accessToken, dateRange, auth.managerId)
+        return { data: rows, source: 'google_ads_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message }, 'getGoogleDailyInsights failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+}

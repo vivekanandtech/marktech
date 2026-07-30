@@ -42,6 +42,31 @@ export async function initDb(): Promise<void> {
     // Add columns that may be missing on existing tables
     await db.query(`ALTER TABLE meta_tokens ADD COLUMN IF NOT EXISTS ad_accounts_json       JSONB`)
     await db.query(`ALTER TABLE meta_tokens ADD COLUMN IF NOT EXISTS selected_ad_account_id TEXT`)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS shopify_tokens (
+        client_id    TEXT PRIMARY KEY,
+        shop_domain  TEXT NOT NULL,
+        access_token TEXT NOT NULL,
+        shop_name    TEXT,
+        scope        TEXT,
+        expires_at   TIMESTAMPTZ,
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    // Add expires_at column to existing tables that were created without it
+    await db.query(`ALTER TABLE shopify_tokens ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS google_tokens (
+        client_id            TEXT PRIMARY KEY,
+        refresh_token        TEXT NOT NULL,
+        access_token         TEXT,
+        access_token_expiry  TIMESTAMPTZ,
+        customer_id          TEXT,
+        customer_name        TEXT,
+        customers_json       JSONB,
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
     console.log('[db] Connected and ready')
   } catch (err) {
     console.error('[db] Failed to initialise:', err)

@@ -16,6 +16,12 @@ function metaFetch(path: string, metaToken: string | null, signal?: AbortSignal)
   })
 }
 
+// Call this whenever any /api/* request returns 401 "Unauthorized" (JWT expired).
+// Logs the user out cleanly so ProtectedRoute redirects them to /login.
+function handleExpiredSession() {
+  useAuthStore.getState().logout()
+}
+
 export interface MetaCampaign {
   id: string
   name: string
@@ -74,9 +80,20 @@ export function useMetaCampaigns() {
     )
       .then(async (r) => {
         if (controller.signal.aborted) return
-        if (r.status === 401) { setMetaDisconnected(clientId); return }
         const json = await r.json()
         if (controller.signal.aborted) return
+        // 401 "Meta not connected" → token genuinely gone on the server side.
+        // 401 "Unauthorized" → JWT expired (session issue, NOT a Meta disconnection).
+        // Only clear Meta state if the server explicitly says the Meta token is missing.
+        if (r.status === 401) {
+          if (json.error === 'Meta not connected.') {
+            setMetaDisconnected(clientId)
+          } else {
+            // JWT expired — redirect to login (preserves Meta connection state)
+            handleExpiredSession()
+          }
+          return
+        }
         if (json.error) {
           setCampaigns(cacheKey, { loading: false, error: json.error })
           return

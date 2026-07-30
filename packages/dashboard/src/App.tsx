@@ -6,6 +6,7 @@ import { PrivacyPolicyPage } from '@/pages/PrivacyPolicyPage'
 import { OverviewPage } from '@/pages/OverviewPage'
 import { MetaAdsPage } from '@/pages/MetaAdsPage'
 import { GoogleAdsPage } from '@/pages/GoogleAdsPage'
+import { ShopifyPage } from '@/pages/ShopifyPage'
 import { CreativesPage } from '@/pages/CreativesPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -24,8 +25,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 export function syncMetaStatus(clientId: string) {
   const { setMetaConnected, setMetaDisconnected, assignAdAccount } = useClientStore.getState()
   return fetch(`${API}/auth/meta/status?clientId=${clientId}`)
-    .then((r) => r.json())
+    .then((r) => r.ok ? r.json() : null)
     .then((data) => {
+      if (!data) return  // server error (5xx) — don't touch connection state
       if (data.connected) {
         setMetaConnected(clientId, {
           metaUserId: data.metaUserId,
@@ -46,7 +48,7 @@ export function syncMetaStatus(clientId: string) {
         setMetaDisconnected(clientId)
       }
     })
-    .catch(() => setMetaDisconnected(clientId))
+    .catch(() => {})  // network failure — don't change connection state
 }
 
 function MetaSyncProvider() {
@@ -133,6 +135,36 @@ function MetaSyncProvider() {
   return null
 }
 
+function GoogleSyncProvider() {
+  useEffect(() => {
+    fetch(`${API}/auth/google/sessions`)
+      .then((r) => r.json())
+      .then(({ sessions }) => {
+        if (!sessions?.length) return
+        const { adoptGoogleSession } = useClientStore.getState()
+        sessions.forEach((s: any) => adoptGoogleSession({
+          clientId: s.clientId,
+          customerId: s.customerId ?? null,
+          customerName: s.customerName ?? null,
+          customers: s.customers ?? [],
+        }))
+
+        // Force filterStore to a Google-connected client if current client isn't
+        const { clients: updated } = useClientStore.getState()
+        const { clientId: currentId, setClientId: setId } = useFilterStore.getState()
+        const currentIsGoogleConnected = updated.find((c) => c.id === currentId)?.google?.connected
+        if (!currentIsGoogleConnected) {
+          const firstConnected = updated.find((c) => c.google?.connected)
+          if (firstConnected) setId(firstConnected.id)
+        }
+      })
+      .catch((err) => console.warn('[Marktech] Google session fetch failed:', err))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return null
+}
+
 export default function App() {
   useEffect(() => { initTheme() }, [])
 
@@ -146,6 +178,7 @@ export default function App() {
           element={
             <ProtectedRoute>
               <MetaSyncProvider />
+              <GoogleSyncProvider />
               <AppLayout />
             </ProtectedRoute>
           }
@@ -154,6 +187,7 @@ export default function App() {
           <Route path="overview" element={<OverviewPage />} />
           <Route path="meta" element={<MetaAdsPage />} />
           <Route path="google" element={<GoogleAdsPage />} />
+          <Route path="shopify" element={<ShopifyPage />} />
           <Route path="creatives" element={<CreativesPage />} />
           <Route path="alerts" element={<AlertsPage />} />
           <Route path="settings" element={<SettingsPage />} />
