@@ -76,7 +76,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       'developer-token': devToken,
       'Content-Type': 'application/json',
     }
-    const res = await fetch('https://googleads.googleapis.com/v20/customers:listAccessibleCustomers', { headers })
+    const res = await fetch('https://googleads.googleapis.com/v21/customers:listAccessibleCustomers', { headers })
     const text = await res.text()
     return { status: res.status, devTokenLength: devToken.length, body: text.slice(0, 500) }
   })
