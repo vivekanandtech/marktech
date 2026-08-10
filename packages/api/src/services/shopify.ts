@@ -1,6 +1,6 @@
 import { getPool } from '../lib/db'
 
-const SHOPIFY_API_VERSION = '2024-01'
+const SHOPIFY_API_VERSION = '2026-07'
 
 // ─── In-memory token cache ────────────────────────────────────────────────────
 export const shopifyTokenStore = new Map<string, {
@@ -22,7 +22,7 @@ export function getShopifyOAuthUrl(shopDomain: string, clientId: string): string
   const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID!
   const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI ?? 'http://localhost:3001/auth/shopify/callback'
   const normalized = normalizeShopDomain(shopDomain)
-  const scopes = 'read_analytics,read_orders,read_products'
+  const scopes = 'read_analytics,read_orders,read_products,read_reports'
   return `https://${normalized}/admin/oauth/authorize?client_id=${SHOPIFY_CLIENT_ID}&scope=${scopes}&redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&state=${encodeURIComponent(clientId)}`
 }
 
@@ -92,14 +92,10 @@ export async function runShopifyQL(
 ): Promise<ShopifyQLResult> {
   const gql = `{
     shopifyqlQuery(query: ${JSON.stringify(sqlQuery)}) {
-      ... on TableResponse {
-        tableData {
-          rowData
-          columns { name dataType displayName }
-        }
-      }
-      ... on ParseErrorResponse {
-        parseErrors { code message }
+      parseErrors
+      tableData {
+        rows
+        columns { name dataType displayName }
       }
     }
   }`
@@ -128,13 +124,20 @@ export async function runShopifyQL(
   if (!result) throw new Error('Empty ShopifyQL response')
 
   if (result.parseErrors?.length) {
-    throw new Error(`ShopifyQL syntax error: ${result.parseErrors[0]?.message}`)
+    throw new Error(`ShopifyQL syntax error: ${result.parseErrors[0]}`)
   }
 
   const td = result.tableData
   if (!td) throw new Error('ShopifyQL returned no table data (analytics scope may be missing)')
 
-  return { columns: td.columns ?? [], rows: td.rowData ?? [] }
+  const columns = td.columns ?? []
+  // Shopify's `rows` field returns objects keyed by column name, not arrays —
+  // reshape into arrays ordered by `columns` to match the existing table contract.
+  const rows = (td.rows ?? []).map((row: Record<string, string>) =>
+    columns.map((col: { name: string }) => row[col.name] ?? '')
+  )
+
+  return { columns, rows }
 }
 
 // ─── DB persistence ───────────────────────────────────────────────────────────
