@@ -22,7 +22,7 @@ export function getShopifyOAuthUrl(shopDomain: string, clientId: string): string
   const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID!
   const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI ?? 'http://localhost:3001/auth/shopify/callback'
   const normalized = normalizeShopDomain(shopDomain)
-  const scopes = 'read_analytics,read_orders,read_products,read_reports'
+  const scopes = 'read_analytics,read_orders,read_products,read_reports,read_customers'
   return `https://${normalized}/admin/oauth/authorize?client_id=${SHOPIFY_CLIENT_ID}&scope=${scopes}&redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&state=${encodeURIComponent(clientId)}`
 }
 
@@ -85,6 +85,17 @@ export interface ShopifyQLResult {
   rows: string[][]
 }
 
+// Shopify's `tableData.rows` returns objects keyed by column name, not arrays —
+// reshape into arrays ordered by `columns` to match this module's table contract.
+// Extracted as a pure function since this exact shape mismatch has broken before
+// (Shopify changed it from an array under the old TableResponse union schema).
+export function reshapeShopifyQLRows(
+  columns: Array<{ name: string }>,
+  rawRows: Array<Record<string, string>>
+): string[][] {
+  return rawRows.map((row) => columns.map((col) => row[col.name] ?? ''))
+}
+
 export async function runShopifyQL(
   shopDomain: string,
   accessToken: string,
@@ -131,13 +142,175 @@ export async function runShopifyQL(
   if (!td) throw new Error('ShopifyQL returned no table data (analytics scope may be missing)')
 
   const columns = td.columns ?? []
-  // Shopify's `rows` field returns objects keyed by column name, not arrays —
-  // reshape into arrays ordered by `columns` to match the existing table contract.
-  const rows = (td.rows ?? []).map((row: Record<string, string>) =>
-    columns.map((col: { name: string }) => row[col.name] ?? '')
-  )
+  const rows = reshapeShopifyQLRows(columns, td.rows ?? [])
 
   return { columns, rows }
+}
+
+// ─── Cross-channel attribution ───────────────────────────────────────────────
+// Classification is a judgment call, not a Shopify-provided label: Meta ads in
+// this account tag utm_medium with campaign details, while organic Instagram/
+// Facebook clicks leave utm_medium empty — so "has a medium" is what separates
+// paid from organic within the same referring_channel bucket. Google Ads is
+// identified by utm_medium=cpc rather than by channel/source alone, since
+// organic Google search shares the same "google" referring_channel.
+
+export type AttributionChannel = 'meta' | 'google' | 'direct' | 'organic' | 'other'
+
+export interface ChannelTotals {
+  orders: number
+  netSales: number
+}
+
+export function classifyChannel(referringChannel: string, utmMedium: string, utmSource: string): AttributionChannel {
+  const rc = referringChannel.toLowerCase()
+  const medium = utmMedium.toLowerCase()
+  const source = utmSource.toLowerCase()
+  const hasMedium = medium.length > 0
+
+  if (hasMedium && (['facebook', 'instagram', 'c2c'].includes(rc) || source === 'facebook')) return 'meta'
+  if (medium === 'cpc' && (source === 'google' || rc === 'google')) return 'google'
+  if (rc === 'direct') return 'direct'
+  if (!hasMedium && ['google', 'bing', 'yahoo!', 'duckduckgo'].includes(rc)) return 'organic'
+  return 'other'
+}
+
+export async function getOrdersByChannel(
+  shopDomain: string,
+  accessToken: string,
+  days: number
+): Promise<Record<AttributionChannel, ChannelTotals>> {
+  const query =
+    `FROM sales SHOW orders, total_sales ` +
+    `GROUP BY referring_channel, utm_medium, utm_source WITH LAST_CLICK_ATTRIBUTION ` +
+    `SINCE -${days}d UNTIL today`
+
+  const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
+  const rcIdx = columns.findIndex((c) => c.name === 'referring_channel')
+  const medIdx = columns.findIndex((c) => c.name === 'utm_medium')
+  const srcIdx = columns.findIndex((c) => c.name === 'utm_source')
+  const ordersIdx = columns.findIndex((c) => c.name === 'orders__last_click')
+  const salesIdx = columns.findIndex((c) => c.name === 'total_sales__last_click')
+
+  const totals: Record<AttributionChannel, ChannelTotals> = {
+    meta: { orders: 0, netSales: 0 },
+    google: { orders: 0, netSales: 0 },
+    direct: { orders: 0, netSales: 0 },
+    organic: { orders: 0, netSales: 0 },
+    other: { orders: 0, netSales: 0 },
+  }
+
+  for (const row of rows) {
+    const channel = classifyChannel(row[rcIdx] ?? '', row[medIdx] ?? '', row[srcIdx] ?? '')
+    totals[channel].orders += Number(row[ordersIdx]) || 0
+    totals[channel].netSales += Number(row[salesIdx]) || 0
+  }
+
+  return totals
+}
+
+export async function getMetaSessions(shopDomain: string, accessToken: string, days: number): Promise<number> {
+  const query =
+    `FROM sessions SHOW sessions ` +
+    `GROUP BY utm_source, referrer_name ` +
+    `SINCE -${days}d UNTIL today`
+
+  const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
+  const srcIdx = columns.findIndex((c) => c.name === 'utm_source')
+  const refIdx = columns.findIndex((c) => c.name === 'referrer_name')
+  const sessIdx = columns.findIndex((c) => c.name === 'sessions')
+
+  let total = 0
+  for (const row of rows) {
+    const source = (row[srcIdx] ?? '').toLowerCase()
+    const referrer = (row[refIdx] ?? '').toLowerCase()
+    if (source === 'facebook' || referrer === 'instagram' || referrer === 'facebook') {
+      total += Number(row[sessIdx]) || 0
+    }
+  }
+  return total
+}
+
+export async function getNetRevenueByDay(shopDomain: string, accessToken: string, days: number): Promise<ShopifyQLResult> {
+  const query =
+    `FROM sales SHOW net_sales ` +
+    `GROUP BY day ` +
+    `TIMESERIES day ` +
+    `SINCE -${days}d UNTIL today`
+  return runShopifyQL(shopDomain, accessToken, query)
+}
+
+export async function getSalesByCountry(shopDomain: string, accessToken: string, days: number): Promise<ShopifyQLResult> {
+  const query =
+    `FROM sales SHOW orders, net_sales ` +
+    `GROUP BY billing_country ` +
+    `SINCE -${days}d UNTIL today ` +
+    `ORDER BY net_sales DESC`
+  return runShopifyQL(shopDomain, accessToken, query)
+}
+
+// In-memory cache — the country list rarely changes, no need to hit Shopify on every dropdown open.
+const countryCache = new Map<string, { countries: string[]; fetchedAt: number }>()
+const COUNTRY_CACHE_TTL_MS = 60 * 60 * 1000
+
+export async function getAvailableCountries(shopDomain: string, accessToken: string): Promise<string[]> {
+  const cached = countryCache.get(shopDomain)
+  if (cached && Date.now() - cached.fetchedAt < COUNTRY_CACHE_TTL_MS) return cached.countries
+
+  const query = `FROM sales SHOW orders GROUP BY billing_country SINCE -90d UNTIL today ORDER BY orders DESC`
+  const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
+  const idx = columns.findIndex((c) => c.name === 'billing_country')
+  const countries = rows.map((r) => r[idx]).filter((c): c is string => !!c)
+
+  countryCache.set(shopDomain, { countries, fetchedAt: Date.now() })
+  return countries
+}
+
+// New-customer count isn't exposed as a ShopifyQL dimension (verified: customer_type,
+// customer_status, is_first_order all don't exist on the sales table) — the reliable
+// mechanism is the standard Orders API's customer.numberOfOrders field. Paginated and
+// capped for cost control; large stores get an approximate count over the sampled orders.
+const NEW_CUSTOMER_SAMPLE_CAP = 500
+
+export async function getNewCustomerCount(
+  shopDomain: string,
+  accessToken: string,
+  days: number
+): Promise<{ newCustomers: number; sampledOrders: number; approximate: boolean }> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const gql = `
+    query($cursor: String) {
+      orders(first: 250, after: $cursor, query: "created_at:>=${since}") {
+        pageInfo { hasNextPage endCursor }
+        edges { node { customer { numberOfOrders } } }
+      }
+    }`
+
+  let cursor: string | null = null
+  let newCustomers = 0
+  let sampledOrders = 0
+  let hasNextPage = true
+
+  while (hasNextPage && sampledOrders < NEW_CUSTOMER_SAMPLE_CAP) {
+    const resp: Response = await fetch(`https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+      method: 'POST',
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: gql, variables: { cursor } }),
+    })
+    if (!resp.ok) throw new Error(`Shopify orders request failed (${resp.status})`)
+    const json = await resp.json() as any
+    if (json.errors?.length) throw new Error(`Shopify API error: ${json.errors[0]?.message}`)
+
+    const edges = json.data?.orders?.edges ?? []
+    for (const { node } of edges) {
+      sampledOrders++
+      if (node.customer?.numberOfOrders === 1) newCustomers++
+    }
+    hasNextPage = json.data?.orders?.pageInfo?.hasNextPage ?? false
+    cursor = json.data?.orders?.pageInfo?.endCursor ?? null
+  }
+
+  return { newCustomers, sampledOrders, approximate: hasNextPage }
 }
 
 // ─── DB persistence ───────────────────────────────────────────────────────────

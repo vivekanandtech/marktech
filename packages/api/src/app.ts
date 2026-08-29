@@ -11,6 +11,7 @@ import { metaAuthRoutes, metaDataRoutes } from './routes/meta-auth'
 import { shopifyAuthRoutes, shopifyDataRoutes } from './routes/shopify'
 import { googleAuthRoutes, googleDataRoutes } from './routes/google-auth'
 import { insightsRoutes } from './routes/insights'
+import { metricsRoutes } from './routes/metrics'
 
 export function buildApp() {
   const app = Fastify({ logger: { level: 'info' } })
@@ -63,6 +64,7 @@ export function buildApp() {
   app.register(shopifyDataRoutes, { prefix: '/api/shopify' })
   app.register(googleDataRoutes, { prefix: '/api/google' })
   app.register(insightsRoutes, { prefix: '/api/insights' })
+  app.register(metricsRoutes, { prefix: '/api/metrics' })
 
   return app
 }

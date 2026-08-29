@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, TrendingUp, Target, Image, Bell, Settings,
-  ChevronRight, Zap, ShoppingBag,
+  ChevronRight, Zap, ShoppingBag, Sparkles,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useFilterStore } from '@/store/filterStore'
@@ -11,7 +11,12 @@ interface NavItem { label: string; to: string; icon: React.ReactNode }
 interface NavGroup { heading?: string; items: NavItem[] }
 
 const NAV: NavGroup[] = [
-  { items: [{ label: 'Overview', to: '/overview', icon: <LayoutDashboard size={16} /> }] },
+  {
+    items: [
+      { label: 'Overview', to: '/overview', icon: <LayoutDashboard size={16} /> },
+      { label: 'Insights', to: '/insights', icon: <Sparkles size={16} /> },
+    ],
+  },
   {
     heading: 'Meta Ads',
     items: [

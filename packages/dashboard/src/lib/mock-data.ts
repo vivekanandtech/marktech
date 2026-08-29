@@ -209,13 +209,32 @@ export const ALL_CAMPAIGNS = {
   c3: [],
 }
 
+// Demo-mode campaigns still carry the old flat `trend: N` shape from before
+// per-metric trend badges existed. Normalize to the current { spendPct, roasPct,
+// ctrPct, cpaPct } shape at the boundary so CampaignRow/AdSetRow/AdRow (which
+// now expect that object) render correctly in demo mode too, without needing
+// to rewrite every mock campaign literal individually.
+function normalizeTrend<T extends { trend: number; ads?: T[] }>(node: any): any {
+  const trend = typeof node.trend === 'number'
+    ? { spendPct: node.trend, roasPct: node.trend, ctrPct: node.trend, cpaPct: node.trend }
+    : node.trend
+  return {
+    ...node,
+    trend,
+    ...(node.adSets ? { adSets: node.adSets.map(normalizeTrend) } : {}),
+    ...(node.ads ? { ads: node.ads.map(normalizeTrend) } : {}),
+  }
+}
+
 export function getCampaigns(clientId: string, platform: string, market: string) {
   const all = ALL_CAMPAIGNS[clientId as keyof typeof ALL_CAMPAIGNS] ?? ALL_CAMPAIGNS['c1']
-  return all.filter((c) => {
-    const platOk = !platform || platform === 'all' || c.platform === platform
-    const mktOk = !market || market === 'all' || c.market === market
-    return platOk && mktOk
-  })
+  return all
+    .filter((c) => {
+      const platOk = !platform || platform === 'all' || c.platform === platform
+      const mktOk = !market || market === 'all' || c.market === market
+      return platOk && mktOk
+    })
+    .map(normalizeTrend)
 }
 
 // ─── Creatives ───────────────────────────────────────────────────────────────

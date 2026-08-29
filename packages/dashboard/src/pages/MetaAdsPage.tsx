@@ -218,12 +218,13 @@ function ConnectedView() {
 
 // ─── Not connected — mock data view ──────────────────────────────────────────
 function MockView() {
-  const { clientId, market } = useFilterStore()
+  const { clientId, country } = useFilterStore()
   const [typeFilter, setTypeFilter] = useState<CampaignFilter>('all')
   const [tagFilter, setTagFilter] = useState<ActionTagFilter>('all')
 
-  const metrics = getSummaryMetrics(clientId, market)
-  const allMetaCampaigns = getCampaigns(clientId, 'meta', market)
+  const mockMarket = country === 'all' ? 'all' : country === 'India' ? 'india' : 'international'
+  const metrics = getSummaryMetrics(clientId, mockMarket)
+  const allMetaCampaigns = getCampaigns(clientId, 'meta', mockMarket)
   const campaigns = allMetaCampaigns.filter((c) =>
     (typeFilter === 'all' || c.status === typeFilter) &&
     (tagFilter === 'all' || c.actionTag === tagFilter)

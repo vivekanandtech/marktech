@@ -2,15 +2,14 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 type DateRange = '1D' | '3D' | '7D' | '14D' | '30D' | '3M' | '6M' | '1Y'
-type Market = 'all' | 'india' | 'international'
 
 interface FilterState {
   clientId: string
   dateRange: DateRange
-  market: Market
+  country: string // real country name (e.g. "India"), or 'all'
   setClientId: (id: string) => void
   setDateRange: (range: DateRange) => void
-  setMarket: (market: Market) => void
+  setCountry: (country: string) => void
 }
 
 export const useFilterStore = create<FilterState>()(
@@ -18,10 +17,10 @@ export const useFilterStore = create<FilterState>()(
     (set) => ({
       clientId: '',
       dateRange: '30D',
-      market: 'all',
+      country: 'all',
       setClientId: (clientId) => set({ clientId }),
       setDateRange: (dateRange) => set({ dateRange }),
-      setMarket: (market) => set({ market }),
+      setCountry: (country) => set({ country }),
     }),
     { name: 'marktech-filters', partialize: (s) => ({ clientId: s.clientId, dateRange: s.dateRange }) }
   )

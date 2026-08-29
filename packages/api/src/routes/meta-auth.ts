@@ -2,9 +2,10 @@ import { FastifyInstance } from 'fastify'
 import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
-  getCampaignInsights, getCampaigns, getAccountInsights, getCampaignDetail, getTopAds, getDailyInsights,
+  getCampaignInsights, getCampaignInsightsForWindow, getCampaigns, getAccountInsights, getCampaignDetail, getTopAds, getDailyInsights,
   dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions, dbDeleteToken,
 } from '../services/meta'
+import { previousWindow } from '../lib/dateWindows'
 
 export async function metaAuthRoutes(app: FastifyInstance) {
 
@@ -218,18 +219,23 @@ export async function metaDataRoutes(app: FastifyInstance) {
 
       // Fetch campaigns + campaign-level insights (paginated) and account-level
       // totals in parallel. Ad sets/ads are loaded lazily per campaign on expand.
-      const [campaigns, campaignInsights, accountInsights] = await Promise.all([
+      // Previous-period insights are fetched alongside so the frontend can derive
+      // a per-metric trend badge without a second round trip.
+      const [campaigns, campaignInsights, previousCampaignInsights, accountInsights] = await Promise.all([
         getCampaigns(adAccountId, token),
         safe('campaignInsights', () => getCampaignInsights(adAccountId, token, dateRange, 'campaign')),
+        safe('previousCampaignInsights', () => getCampaignInsightsForWindow(adAccountId, token, previousWindow(dateRange), 'campaign')),
         safe('accountInsights',  () => getAccountInsights(adAccountId, token, dateRange)),
       ])
 
       const insightMap = new Map((campaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
+      const previousInsightMap = new Map((previousCampaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
 
       return {
         data: campaigns.map((c: any) => ({
           ...c,
           insights: insightMap.get(c.id) ?? null,
+          previousInsights: previousInsightMap.get(c.id) ?? null,
           adsets: [],
         })),
         accountInsights: accountInsights ?? null,

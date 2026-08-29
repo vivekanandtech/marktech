@@ -15,9 +15,13 @@ import { CreativeCard } from '@/components/creatives/CreativeCard'
 import { AlertCard } from '@/components/alerts/AlertCard'
 import { CampaignTable } from '@/components/campaigns/CampaignTable'
 import { InsightsPanel } from '@/components/insights/InsightsPanel'
+import { CrossChannelInsightsTeaser } from '@/components/insights/CrossChannelInsightsTeaser'
+import { ReconciliationSection } from '@/components/reconciliation/ReconciliationSection'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { useMetaCampaigns, useMetaDailyInsights, useMetaCreatives } from '@/hooks/useMetaData'
+import { useOverviewMetrics } from '@/hooks/useOverviewMetrics'
+import { getMetricStatus } from '@/lib/metric-thresholds'
 import { getSummaryMetrics, getChartData, getFormatBreakdown, getCreatives, getAlerts } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { transformInsightMetrics, transformMetaCampaign, safeFloat, safeInt } from '@/lib/meta-transform'
@@ -85,7 +89,7 @@ const ACTION_TAG_FILTERS: { value: ActionTagFilter; label: string; activeClass: 
 const TAG_ORDER: Record<string, number> = { scale: 0, watch: 1, optimise: 2 }
 
 export function OverviewPage() {
-  const { clientId, dateRange, market } = useFilterStore()
+  const { clientId, dateRange, country } = useFilterStore()
   const { clients } = useClientStore()
   const currentClient = clients.find((c) => c.id === clientId)
   const connected = currentClient?.meta.connected ?? false
@@ -98,8 +102,11 @@ export function OverviewPage() {
   const { data: rawAds,       loading: creativesLoading }                  = useMetaCreatives()
 
   // ── Mock fallbacks ─────────────────────────────────────────────────────────
-  const mockMetrics   = getSummaryMetrics(clientId, market)
-  const mockChartData = getChartData(clientId, dateRange, market).map(d => ({
+  // mock-data.ts still speaks the old 'all'|'india'|'international' vocabulary —
+  // translate the real country filter into it rather than rewriting the mock module.
+  const mockMarket = country === 'all' ? 'all' : country === 'India' ? 'india' : 'international'
+  const mockMetrics   = getSummaryMetrics(clientId, mockMarket)
+  const mockChartData = getChartData(clientId, dateRange, mockMarket).map(d => ({
     ...d, purchaseValue: d.netSales ?? 0,
   }))
   const formatData    = getFormatBreakdown(clientId)
@@ -116,6 +123,22 @@ export function OverviewPage() {
   const cpm         = connected ? (acct?.cpm           ?? 0) : mockMetrics.cpm.value
   const impressions = connected ? (acct?.impressions   ?? 0) : 0
   const clicks      = connected ? (acct?.clicks        ?? 0) : 0
+
+  // ── Cross-channel truth metrics (Shopify-attributed, not platform-reported) ──
+  const { data: overview, connectedSomewhere } = useOverviewMetrics()
+  const sessions        = overview?.current.metaSessions ?? 0
+  const sessionsDelta    = overview?.deltas.metaSessions ?? 0
+  const attributedCPR   = overview?.current.attributedCPR ?? 0
+  const attributedCPRDelta = overview?.deltas.attributedCPR ?? 0
+  const mer             = overview?.current.mer ?? 0
+  const merDelta         = overview?.deltas.mer ?? 0
+  const nCAC             = overview?.current.nCAC ?? 0
+  const nCACAvailable    = overview?.current.newCustomerDataAvailable ?? false
+  const nCACDelta        = overview?.deltas.nCAC ?? 0
+  const overClaim        = overview?.current.overClaimMultiplier ?? 0
+  const googleSpend      = overview?.current.googleSpend ?? 0
+  const countryBreakdown = overview?.countryBreakdown ?? []
+  const totalCountrySpend = countryBreakdown.reduce((s, c) => s + c.netSales, 0)
 
   // ── Chart data — live when available, mock otherwise ──────────────────────
   const liveChartData = dailyRows.map(toDailyChartRow)
@@ -201,11 +224,29 @@ export function OverviewPage() {
           </div>
         </div>
         <MetricCard label="Ad Spend" value={formatCurrency(spend)} change={connected ? 0 : mockMetrics.adSpend.change} improving={mockMetrics.adSpend.improving} icon={<DollarSign size={15} />} />
-        <MetricCard label="Reach"    value={formatNumber(reach)}   change={connected ? 0 : mockMetrics.reach.change}   improving={mockMetrics.reach.improving}   icon={<Eye size={15} />} />
-        <MetricCard label="Avg CPA"  value={formatCurrency(cpa)}   change={connected ? 0 : mockMetrics.cpa.change}     improving={mockMetrics.cpa.improving}     icon={<Layers size={15} />} />
+        <MetricCard
+          label="Sessions"
+          value={overview?.connected.shopify ? formatNumber(sessions) : '—'}
+          subtitle={overview?.connected.shopify ? 'from Meta (UTM-attributed)' : 'Connect Shopify to see this'}
+          change={sessionsDelta} improving={sessionsDelta >= 0}
+          icon={<Eye size={15} />}
+          metricId={overview?.connected.shopify ? 'metaSessions' : undefined}
+        />
+        <MetricCard
+          label="Attributed CPR"
+          value={overview?.connected.shopify ? formatCurrency(attributedCPR) : (connected ? formatCurrency(cpa) : formatCurrency(mockMetrics.cpa.value))}
+          subtitle={overview?.connected.shopify ? 'Meta spend ÷ Shopify orders' : undefined}
+          change={overview?.connected.shopify ? attributedCPRDelta : (connected ? 0 : mockMetrics.cpa.change)}
+          improving={overview?.connected.shopify ? attributedCPRDelta <= 0 : mockMetrics.cpa.improving}
+          icon={<Layers size={15} />}
+          metricId={overview?.connected.shopify ? 'attributedCPR' : undefined}
+          status={overview?.connected.shopify ? getMetricStatus('attributedCPR', attributedCPR) : null}
+        />
       </div>
 
       {/* ── AI Insights ─────────────────────────────────────────── */}
+      {connectedSomewhere && <CrossChannelInsightsTeaser clientId={clientId} />}
+
       {connected && <InsightsPanel payload={insightsPayload} adAccountId={metaAdAccountId} />}
 
       {/* ── Secondary metrics ───────────────────────────────────── */}
@@ -223,11 +264,35 @@ export function OverviewPage() {
             <MetricCard size="sm" label="CAC"           value={formatCurrency(mockMetrics.cac.value)}          change={mockMetrics.cac.change}            improving={mockMetrics.cac.improving} />
           </>
         )}
-        <MetricCard size="sm" label="AoV"         value={formatCurrency(mockMetrics.aov.value)}            change={mockMetrics.aov.change}              improving={mockMetrics.aov.improving} />
-        <MetricCard size="sm" label="Sessions"    value={formatNumber(mockMetrics.sessions.value)}         change={mockMetrics.sessions.change}         improving={mockMetrics.sessions.improving} />
-        <MetricCard size="sm" label="CM Ratio"    value={formatPercent(mockMetrics.cmRatio.value)}         change={mockMetrics.cmRatio.change}          improving={mockMetrics.cmRatio.improving} />
-        <MetricCard size="sm" label="New Cust %"  value={formatPercent(mockMetrics.newCustomerRate.value)} change={mockMetrics.newCustomerRate.change}   improving={mockMetrics.newCustomerRate.improving} />
+        <MetricCard
+          size="sm" label="MER"
+          value={overview ? formatRoas(mer) : '—'}
+          change={merDelta} improving={merDelta >= 0}
+          metricId="mer"
+          status={overview ? getMetricStatus('mer', mer) : null}
+        />
+        <MetricCard
+          size="sm" label="New-Cust CAC"
+          value={nCACAvailable ? formatCurrency(nCAC) : '—'}
+          change={nCACAvailable ? nCACDelta : 0} improving={nCACAvailable ? nCACDelta <= 0 : true}
+          metricId="nCAC"
+          status={nCACAvailable ? getMetricStatus('nCAC', nCAC) : null}
+        />
+        <MetricCard
+          size="sm" label="Platform Over-claim"
+          value={overview && overview.current.shopifyNetRevenue > 0 ? `${overClaim.toFixed(1)}×` : '—'}
+          change={0} improving
+          metricId="overClaimMultiplier"
+          status={overview && overview.current.shopifyNetRevenue > 0 ? getMetricStatus('overClaimMultiplier', overClaim) : null}
+        />
       </div>
+      {overview && !nCACAvailable && overview.connected.shopify && (
+        <p className="text-[11px] t3 -mt-3">
+          New-Customer CAC needs one more Shopify permission — <Link to="/settings" className="text-indigo-500 hover:underline">reconnect Shopify</Link> to enable it.
+        </p>
+      )}
+
+      <ReconciliationSection overview={overview} />
 
       {/* ── Charts ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -332,7 +397,7 @@ export function OverviewPage() {
         </div>
       </div>
 
-      {/* ── Spend & Market split ─────────────────────────────────── */}
+      {/* ── Spend & Country split ────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card p-4">
           <div className="flex items-center justify-between mb-0.5">
@@ -345,34 +410,61 @@ export function OverviewPage() {
 
         <div className="card p-4 flex flex-col gap-4">
           <div>
-            <h3 className="text-sm font-semibold t1 mb-0.5">Channel & Market Split</h3>
-            <p className="text-xs t3">Meta budget allocation</p>
+            <h3 className="text-sm font-semibold t1 mb-0.5">Channel & Country Split</h3>
+            <p className="text-xs t3">Ad spend by platform · revenue by country</p>
           </div>
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium t2">Meta Ads</span>
-              <span className="text-xs font-bold text-indigo-500 dark:text-indigo-400">100% · {formatCurrency(spend)}</span>
-            </div>
-            <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
-              <div className="h-full bg-indigo-500 rounded-full w-full" />
-            </div>
-            <p className="text-[10px] t3 mt-1.5">Google Ads — not connected</p>
+            {(() => {
+              const totalAdSpend = spend + googleSpend
+              const metaPct = totalAdSpend > 0 ? Math.round((spend / totalAdSpend) * 100) : (spend > 0 ? 100 : 0)
+              const googlePct = 100 - metaPct
+              return (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium t2">Meta Ads</span>
+                    <span className="text-xs font-bold text-indigo-500 dark:text-indigo-400">{metaPct}% · {formatCurrency(spend)}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${metaPct}%` }} />
+                  </div>
+                  {overview?.connected.google ? (
+                    <>
+                      <div className="flex items-center justify-between mt-3 mb-2">
+                        <span className="text-xs font-medium t2">Google Ads</span>
+                        <span className="text-xs font-bold text-amber-500">{googlePct}% · {formatCurrency(googleSpend)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
+                        <div className="h-full bg-amber-500 rounded-full" style={{ width: `${googlePct}%` }} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-[10px] t3 mt-1.5">Google Ads — not connected</p>
+                  )}
+                </>
+              )
+            })()}
           </div>
           <div className="border-t border-theme pt-4 space-y-3">
-            {[
-              { flag: '🇮🇳', label: 'India',         pct: 72, color: 'text-orange-500', bg: 'bg-orange-400' },
-              { flag: '🌍', label: 'International',  pct: 28, color: 'text-blue-500',   bg: 'bg-blue-400'   },
-            ].map(m => (
-              <div key={m.label}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium t2">{m.flag} {m.label}</span>
-                  <span className={`text-xs font-bold ${m.color}`}>{m.pct}% · {formatCurrency(spend * m.pct / 100)}</span>
-                </div>
-                <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
-                  <div className={`h-full ${m.bg} rounded-full`} style={{ width: `${m.pct}%` }} />
-                </div>
-              </div>
-            ))}
+            {countryBreakdown.length === 0 ? (
+              <p className="text-[11px] t3">Connect Shopify to see revenue by country</p>
+            ) : (
+              countryBreakdown.slice(0, 3).map((c, i) => {
+                const pct = totalCountrySpend > 0 ? Math.round((c.netSales / totalCountrySpend) * 100) : 0
+                const bars = ['bg-orange-400', 'bg-blue-400', 'bg-emerald-400']
+                const colors = ['text-orange-500', 'text-blue-500', 'text-emerald-500']
+                return (
+                  <div key={c.country}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium t2">{c.country}</span>
+                      <span className={`text-xs font-bold ${colors[i]}`}>{pct}% · {formatCurrency(c.netSales)}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
+                      <div className={`h-full ${bars[i]} rounded-full`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                )
+              })
+            )}
           </div>
           <div className="grid grid-cols-3 gap-3 border-t border-theme pt-4">
             {[

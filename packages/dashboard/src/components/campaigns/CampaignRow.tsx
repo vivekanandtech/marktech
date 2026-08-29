@@ -7,8 +7,10 @@ import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
 import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdSetRow } from './AdSetRow'
 import { useCampaignDetail } from '@/hooks/useMetaData'
+import { useGoogleAdGroups } from '@/hooks/useGoogleData'
 import { useFilterStore } from '@/store/filterStore'
-import { transformMetaAdSet } from '@/lib/meta-transform'
+import { transformMetaAdSet, MetricTrend, isMetricImproving } from '@/lib/meta-transform'
+import { transformGoogleAdGroup } from '@/lib/google-transform'
 import { useInsightsStore } from '@/store/insightsStore'
 import { campaignManagerUrl } from '@/lib/meta-links'
 
@@ -16,7 +18,7 @@ interface Campaign {
   id: string; platform: string; name: string; type: string; market: string; status: string; objective: string
   dailyBudget: number; spend: number; roas: number; ctr: number; cpa: number; cpc: number
   impressions: number; clicks: number; conversions: number; reach: number; frequency: number
-  actionTag: string; trend: number; adSets: any[]
+  actionTag: string; trend: MetricTrend | null; adSets: any[]
 }
 
 const INSIGHT_TEXT_CLASS: Record<string, string> = {
@@ -29,25 +31,38 @@ const INSIGHT_TEXT_CLASS: Record<string, string> = {
 export function CampaignRow({ campaign, adAccountId }: { campaign: Campaign; adAccountId?: string | null }) {
   const [expanded, setExpanded] = useState(false)
   const { dateRange } = useFilterStore()
+  const isGoogle = campaign.platform === 'google'
 
   const insight = useInsightsStore((s) => s.getForEntity('campaign', campaign.id))
-  const metaUrl = adAccountId ? campaignManagerUrl(adAccountId, campaign.id) : null
+  const metaUrl = !isGoogle && adAccountId ? campaignManagerUrl(adAccountId, campaign.id) : null
 
   // Lazy-load ad sets only when the row is expanded — avoids fetching all
   // ad sets/ads for 800+ campaigns upfront. Only attempted for live (connected)
   // campaigns — adAccountId is absent in mock/demo mode, where campaign.adSets
   // already holds the static nested data and needs no fetch.
-  const { adSets, loading: loadingDetail, error: detailError } = useCampaignDetail(
-    expanded && adAccountId ? campaign.id : null,
+  // Both hooks are called unconditionally (rules of hooks) — only the one
+  // matching this campaign's platform is given a real id to fetch with.
+  const meta = useCampaignDetail(
+    !isGoogle && expanded && adAccountId ? campaign.id : null,
     dateRange
   )
+  const google = useGoogleAdGroups(isGoogle && expanded ? campaign.id : null)
 
-  // Transform raw Meta API adset objects → the shape AdSetRow expects.
-  // campaign.adSets is always [] (we lazy-load); adSets come from useCampaignDetail raw.
-  const transformedAdSets = adSets
-    ? adSets.map(transformMetaAdSet).filter(Boolean)
-    : campaign.adSets
+  const loadingDetail = isGoogle ? google.loading : meta.loading
+  const detailError = isGoogle ? google.error : meta.error
+
+  // Transform raw platform-specific adset/ad-group objects → the shape
+  // AdSetRow expects. campaign.adSets is always [] (we lazy-load); the raw
+  // data above only appears once the row is expanded.
+  const transformedAdSets = isGoogle
+    ? (google.adGroups.length > 0 ? google.adGroups.map(transformGoogleAdGroup) : campaign.adSets)
+    : (meta.adSets ? meta.adSets.map(transformMetaAdSet).filter(Boolean) : campaign.adSets)
   const displayAdSets = transformedAdSets
+
+  // Meta's hook starts at `adSets: null` (so "loading, nothing yet" is a clean
+  // null-check); Google's starts at `adGroups: []` (same shape as "loaded but
+  // empty"). Normalize both into one "still loading, nothing to show" check.
+  const stillLoadingDetail = loadingDetail && displayAdSets.length === 0
 
   return (
     <>
@@ -97,6 +112,7 @@ export function CampaignRow({ campaign, adAccountId }: { campaign: Campaign; adA
 
         <td className="px-3 py-3 text-right">
           <p className="text-sm font-semibold t1">{formatCurrency(campaign.spend)}</p>
+          {campaign.trend && <TrendBadge change={campaign.trend.spendPct ?? 0} improving={isMetricImproving('spend', campaign.trend.spendPct ?? 0)} />}
         </td>
 
         <td className="px-3 py-3 text-right">
@@ -106,36 +122,39 @@ export function CampaignRow({ campaign, adAccountId }: { campaign: Campaign; adA
           )}>
             {formatRoas(campaign.roas)}
           </p>
+          {campaign.trend && <TrendBadge change={campaign.trend.roasPct ?? 0} improving={isMetricImproving('roas', campaign.trend.roasPct ?? 0)} />}
         </td>
 
-        <td className="px-3 py-3 text-right text-sm t2">{formatPercent(campaign.ctr)}</td>
-        <td className="px-3 py-3 text-right text-sm t2">{formatCurrency(campaign.cpa)}</td>
-
-        <td className="px-3 py-3 text-right">
-          <TrendBadge change={campaign.trend} improving={campaign.trend > 0} size="md" />
+        <td className="px-3 py-3 text-right text-sm t2">
+          {formatPercent(campaign.ctr)}
+          {campaign.trend && <div><TrendBadge change={campaign.trend.ctrPct ?? 0} improving={isMetricImproving('ctr', campaign.trend.ctrPct ?? 0)} /></div>}
+        </td>
+        <td className="px-3 py-3 text-right text-sm t2">
+          {formatCurrency(campaign.cpa)}
+          {campaign.trend && <div><TrendBadge change={campaign.trend.cpaPct ?? 0} improving={isMetricImproving('cpa', campaign.trend.cpaPct ?? 0)} /></div>}
         </td>
       </tr>
 
       {expanded && (
-        loadingDetail && !adSets ? (
+        stillLoadingDetail ? (
           <tr>
-            <td colSpan={6} className="py-3 pl-12 text-xs t3">
+            <td colSpan={5} className="py-3 pl-12 text-xs t3">
               <Loader2 size={12} className="inline animate-spin mr-1.5" />
               Loading ad sets…
             </td>
           </tr>
         ) : detailError ? (
           <tr>
-            <td colSpan={6} className="py-3 pl-12 text-xs text-red-500">
+            <td colSpan={5} className="py-3 pl-12 text-xs text-red-500">
               Failed to load: {detailError}
             </td>
           </tr>
         ) : displayAdSets.length === 0 ? (
           <tr>
-            <td colSpan={6} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
+            <td colSpan={5} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
           </tr>
         ) : (
-          displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={adAccountId} />)
+          displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={isGoogle ? null : adAccountId} />)
         )
       )}
     </>

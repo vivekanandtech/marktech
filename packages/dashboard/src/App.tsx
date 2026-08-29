@@ -7,6 +7,7 @@ import { OverviewPage } from '@/pages/OverviewPage'
 import { MetaAdsPage } from '@/pages/MetaAdsPage'
 import { GoogleAdsPage } from '@/pages/GoogleAdsPage'
 import { ShopifyPage } from '@/pages/ShopifyPage'
+import { InsightsPage } from '@/pages/InsightsPage'
 import { CreativesPage } from '@/pages/CreativesPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -188,6 +189,7 @@ export default function App() {
           <Route path="meta" element={<MetaAdsPage />} />
           <Route path="google" element={<GoogleAdsPage />} />
           <Route path="shopify" element={<ShopifyPage />} />
+          <Route path="insights" element={<InsightsPage />} />
           <Route path="creatives" element={<CreativesPage />} />
           <Route path="alerts" element={<AlertsPage />} />
           <Route path="settings" element={<SettingsPage />} />

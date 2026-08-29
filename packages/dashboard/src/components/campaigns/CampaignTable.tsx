@@ -24,7 +24,6 @@ const COLUMNS: { label: string; key?: SortKey; className: string }[] = [
   { label: 'ROAS',        key: 'roas',        className: 'text-right' },
   { label: 'CTR',         key: 'ctr',         className: 'text-right' },
   { label: 'CPA',         key: 'cpa',         className: 'text-right' },
-  { label: 'Trend',                           className: 'text-right' },
 ]
 
 export function CampaignTable({

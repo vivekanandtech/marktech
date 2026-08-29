@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { ShoppingBag, RefreshCw, AlertTriangle, Loader2, TrendingUp, MousePointerClick, Link2, Key } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { ShoppingBag, RefreshCw, AlertTriangle, Loader2, TrendingUp, MousePointerClick, Link2, Key, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useClientStore } from '@/store/clientStore'
 import { useFilterStore } from '@/store/filterStore'
 import { useAuthStore } from '@/store/authStore'
@@ -174,6 +174,8 @@ function NotConnected({ clientId }: { clientId: string }) {
 
 // ─── Report table ─────────────────────────────────────────────────────────────
 
+const ROWS_PER_PAGE = 10
+
 function ReportTable({
   title,
   icon: Icon,
@@ -189,6 +191,19 @@ function ReportTable({
   error: string | null
   onRefresh: () => void
 }) {
+  const [page, setPage] = useState(0)
+
+  // A fresh report (new date range, refresh, etc.) should always start back at page 1.
+  useEffect(() => { setPage(0) }, [report])
+
+  const totalRows = report?.rows.length ?? 0
+  const totalPages = Math.max(1, Math.ceil(totalRows / ROWS_PER_PAGE))
+  const clampedPage = Math.min(page, totalPages - 1)
+  const pagedRows = useMemo(
+    () => report ? report.rows.slice(clampedPage * ROWS_PER_PAGE, (clampedPage + 1) * ROWS_PER_PAGE) : [],
+    [report, clampedPage]
+  )
+
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-theme">
@@ -223,36 +238,67 @@ function ReportTable({
           <Loader2 size={16} className="animate-spin" /> Loading…
         </div>
       ) : report && report.columns.length > 0 ? (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-surface-2 border-b border-theme">
-                {report.columns.map((col) => (
-                  <th
-                    key={col.name}
-                    className="px-3 py-2.5 text-left font-semibold t3 uppercase tracking-wide whitespace-nowrap"
-                  >
-                    {colLabel(col)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-theme">
-              {report.rows.map((row, ri) => (
-                <tr
-                  key={ri}
-                  className="hover:bg-surface-2 transition-colors"
-                >
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="px-3 py-2.5 t1 whitespace-nowrap">
-                      {fmt(cell, report.columns[ci]?.name ?? '')}
-                    </td>
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-surface-2 border-b border-theme">
+                  {report.columns.map((col) => (
+                    <th
+                      key={col.name}
+                      className="px-3 py-2.5 text-left font-semibold t3 uppercase tracking-wide whitespace-nowrap"
+                    >
+                      {colLabel(col)}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-theme">
+                {pagedRows.map((row, ri) => (
+                  <tr
+                    key={clampedPage * ROWS_PER_PAGE + ri}
+                    className="hover:bg-surface-2 transition-colors"
+                  >
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="px-3 py-2.5 t1 whitespace-nowrap">
+                        {fmt(cell, report.columns[ci]?.name ?? '')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {totalRows > ROWS_PER_PAGE && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-t border-theme">
+              <span className="text-[11px] t3">
+                Showing {clampedPage * ROWS_PER_PAGE + 1}–{Math.min((clampedPage + 1) * ROWS_PER_PAGE, totalRows)} of {totalRows}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={clampedPage === 0}
+                  className="flex items-center justify-center w-7 h-7 rounded-lg border border-theme t2 hover:t1 hover:bg-surface-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft size={13} />
+                </button>
+                <span className="text-[11px] t2 font-medium px-1.5 min-w-[64px] text-center">
+                  Page {clampedPage + 1} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={clampedPage >= totalPages - 1}
+                  className="flex items-center justify-center w-7 h-7 rounded-lg border border-theme t2 hover:t1 hover:bg-surface-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  aria-label="Next page"
+                >
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <div className="flex flex-col items-center gap-2 py-16 text-center">
           <p className="text-sm t3">No data for this period.</p>

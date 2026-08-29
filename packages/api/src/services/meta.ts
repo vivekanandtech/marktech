@@ -1,4 +1,5 @@
 import { getPool } from '../lib/db'
+import { previousWindow } from '../lib/dateWindows'
 
 const GRAPH = 'https://graph.facebook.com/v20.0'
 const APP_ID = process.env.META_APP_ID!
@@ -248,10 +249,21 @@ export async function getCampaignInsights(
   dateRange = '30D',
   level = 'campaign'
 ) {
+  return getCampaignInsightsForWindow(adAccountId, token, toTimeRange(dateRange), level)
+}
+
+// Same as getCampaignInsights but for an explicit {since, until} window — used
+// to fetch a "previous period" for trend comparisons.
+export async function getCampaignInsightsForWindow(
+  adAccountId: string,
+  token: string,
+  window: { since: string; until: string },
+  level = 'campaign'
+) {
   const fields = (LEVEL_FIELDS[level] ?? LEVEL_FIELDS.campaign).join(',')
   const params = new URLSearchParams({
     fields,
-    time_range: JSON.stringify(toTimeRange(dateRange)),
+    time_range: JSON.stringify(window),
     level,
     limit: '200',
     access_token: token,
@@ -262,9 +274,18 @@ export async function getCampaignInsights(
 // Single account-level insight row — gives true account totals matching what
 // Meta Ads Manager shows, regardless of how many campaigns the account has.
 export async function getAccountInsights(adAccountId: string, token: string, dateRange = '30D') {
+  return getAccountInsightsForWindow(adAccountId, token, toTimeRange(dateRange))
+}
+
+// Same as getAccountInsights but for an explicit {since, until} window — used
+// to fetch a "previous period" that toTimeRange (always relative to today)
+// can't express, e.g. for period-over-period comparisons in the metrics engine.
+export async function getAccountInsightsForWindow(
+  adAccountId: string, token: string, window: { since: string; until: string }
+) {
   const params = new URLSearchParams({
     fields: BASE_INSIGHT_FIELDS.join(','),
-    time_range: JSON.stringify(toTimeRange(dateRange)),
+    time_range: JSON.stringify(window),
     level: 'account',
     access_token: token,
   })
@@ -290,6 +311,7 @@ export async function getCampaignDetail(
   // edges automatically, no need to embed JSON inside the fields string.
   const insightFields = BASE_INSIGHT_FIELDS.join(',')
   const timeRangeParam = encodeURIComponent(JSON.stringify(toTimeRange(dateRange)))
+  const previousTimeRangeParam = encodeURIComponent(JSON.stringify(previousWindow(dateRange)))
 
   const adsetFields = `id,name,campaign_id,status,daily_budget,targeting,effective_status,insights{${insightFields}}`
   const adFields    = `id,name,status,adset_id,campaign_id,effective_status,insights{${insightFields}}`
@@ -302,10 +324,13 @@ export async function getCampaignDetail(
     }
   }
 
-  // 2 calls instead of 4 — each returns the list with insights already embedded.
-  const [adsets, ads] = await Promise.all([
+  // 4 calls: current + previous window, each for adsets and ads, so row-level
+  // trend badges can be computed client-side without a separate round trip.
+  const [adsets, ads, prevAdsets, prevAds] = await Promise.all([
     safe('adsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
     safe('ads',    () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
+    safe('prevAdsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${previousTimeRangeParam}&limit=200&access_token=${token}`)),
+    safe('prevAds',    () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&time_range=${previousTimeRangeParam}&limit=200&access_token=${token}`)),
   ])
   console.log(`[getCampaignDetail] campaign ${campaignId}: adsets=${adsets.length} ads=${ads.length}`)
 
@@ -315,16 +340,20 @@ export async function getCampaignDetail(
   const flatInsights = (item: any) =>
     Array.isArray(item.insights?.data) ? item.insights.data[0] ?? null : item.insights ?? null
 
+  const prevAdsetInsights = new Map(prevAdsets.map((as: any) => [as.id, flatInsights(as)]))
+  const prevAdInsights = new Map(prevAds.map((ad: any) => [ad.id, flatInsights(ad)]))
+
   const adsByAdset = new Map<string, any[]>()
   for (const ad of ads) {
     const list = adsByAdset.get(ad.adset_id) ?? []
-    list.push({ ...ad, insights: flatInsights(ad) })
+    list.push({ ...ad, insights: flatInsights(ad), previousInsights: prevAdInsights.get(ad.id) ?? null })
     adsByAdset.set(ad.adset_id, list)
   }
 
   return adsets.map((as: any) => ({
     ...as,
     insights: flatInsights(as),
+    previousInsights: prevAdsetInsights.get(as.id) ?? null,
     ads: adsByAdset.get(as.id) ?? [],
   }))
 }

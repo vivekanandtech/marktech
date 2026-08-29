@@ -67,6 +67,21 @@ export async function initDb(): Promise<void> {
         updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS metrics_cache (
+        cache_key   TEXT PRIMARY KEY,
+        payload     JSONB NOT NULL,
+        computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS cross_channel_insights (
+        client_id    TEXT PRIMARY KEY,
+        date_range   TEXT NOT NULL,
+        payload      JSONB NOT NULL,
+        generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
     console.log('[db] Connected and ready')
   } catch (err) {
     console.error('[db] Failed to initialise:', err)

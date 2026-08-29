@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marktech — Product Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F4F1E9;--card:#FFFFFF;--ink:#1A1813;--muted:#6F6E66;--faint:#9A988E;
+    --green:#1B3A2E;--green-2:#2E7D5B;--up:#2E7D5B;--down:#B0463A;--amber:#B7791F;
+    --border:#E4E0D6;--border-2:#EEEBE2;--shadow:0 1px 2px rgba(26,24,19,.04),0 8px 24px rgba(26,24,19,.05);
+    --radius:10px;--src-shopify:#5E8E3E;--src-meta:#2D5B8A;--src-google:#C0852A;--src-ga4:#7A5BA8;--src-gsc:#54524A;--src-derived:#1B3A2E;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:'DM Sans',system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+  .app{display:flex;min-height:100vh}
+
+  .side{width:228px;flex-shrink:0;background:var(--green);color:#E8E6DC;padding:22px 16px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .brandmark{display:flex;align-items:center;gap:9px;margin-bottom:26px;padding:0 6px}
+  .brandmark .dot{width:13px;height:13px;border-radius:3px;background:#E8E6DC;transform:rotate(45deg)}
+  .brandmark b{font-weight:700;letter-spacing:.2px;font-size:16px;color:#fff}
+  .brandmark span{font-size:10px;color:#9DB3A6;display:block;letter-spacing:.6px;text-transform:uppercase}
+  .nav{display:flex;flex-direction:column;gap:2px}
+  .nav button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:7px;font-size:13.5px;color:#C7D3CC;font-weight:500;transition:background .15s,color .15s}
+  .nav button:hover{background:rgba(255,255,255,.06);color:#fff}
+  .nav button.active{background:#fff;color:var(--green);font-weight:600}
+  .nav button .ic{width:16px;height:16px;flex-shrink:0;opacity:.9}
+  .nav .sub{font-size:10px;text-transform:uppercase;letter-spacing:.7px;color:#88A096;padding:16px 11px 6px}
+  .side .foot{margin-top:auto;font-size:11px;color:#88A096;padding:10px 8px;line-height:1.5}
+  .side .foot b{color:#C7D3CC;font-weight:600}
+
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:14px 28px;background:rgba(244,241,233,.85);backdrop-filter:blur(6px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:30}
+  .topbar .title{font-size:13px;color:var(--muted)}
+  .topbar .title b{color:var(--ink);font-weight:600}
+  .spacer{flex:1}
+  .ctrl{display:inline-flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 11px;font-size:12.5px;color:var(--ink);cursor:pointer;font-weight:500}
+  .ctrl .cap{color:var(--faint);font-weight:500}
+  .ctrl svg{opacity:.5}
+  .toggle{display:inline-flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 11px 6px 12px;font-size:12.5px;cursor:pointer;font-weight:500;user-select:none}
+  .toggle .sw{width:34px;height:19px;border-radius:20px;background:#D9D5C9;position:relative;transition:background .2s}
+  .toggle .sw::after{content:"";position:absolute;width:15px;height:15px;border-radius:50%;background:#fff;top:2px;left:2px;transition:left .2s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .toggle.on .sw{background:var(--green-2)}
+  .toggle.on .sw::after{left:17px}
+
+  .content{padding:24px 28px 60px;max-width:1240px;width:100%}
+  .screen{display:none}
+  .screen.active{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  .h1{font-size:21px;font-weight:700;letter-spacing:-.2px;margin:2px 0 3px}
+  .sub1{color:var(--muted);font-size:13px;margin-bottom:20px;max-width:720px}
+  .sec-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--faint);margin:26px 0 12px}
+
+  .grid{display:grid;gap:14px}
+  .g6{grid-template-columns:repeat(6,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:repeat(2,1fr)}
+  .span2{grid-column:span 2}.span3{grid-column:span 3}.span4{grid-column:span 4}.span6{grid-column:span 6}
+
+  .tile{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:15px 16px 14px;position:relative;box-shadow:var(--shadow)}
+  .tile .lbl{font-size:11.5px;color:var(--muted);font-weight:500;display:flex;align-items:center;gap:6px}
+  .tile .val{font-size:25px;font-weight:700;letter-spacing:-.5px;margin:7px 0 4px;font-variant-numeric:tabular-nums}
+  .tile .val small{font-size:14px;font-weight:600;color:var(--muted)}
+  .delta{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600}
+  .delta.up{color:var(--up)}.delta.down{color:var(--down)}.delta.warn{color:var(--amber)}
+  .delta .cmp{color:var(--faint);font-weight:500}
+  .inspect{position:absolute;top:11px;right:11px;width:22px;height:22px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--faint);opacity:0;transition:opacity .15s,color .15s,border-color .15s}
+  .tile:hover .inspect{opacity:1}
+  .inspect:hover{color:var(--green);border-color:var(--green-2)}
+  .inspect:focus-visible{opacity:1;outline:2px solid var(--green-2);outline-offset:1px}
+  .srcs{display:none;flex-wrap:wrap;gap:5px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+  body.lineage .srcs{display:flex}
+  body.lineage .inspect{opacity:.55}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:500;color:var(--muted);background:var(--bg);border:1px solid var(--border-2);border-radius:20px;padding:2px 8px 2px 6px}
+  .chip .pip{width:7px;height:7px;border-radius:50%}
+
+  .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
+  .panel h3{margin:0 0 2px;font-size:14.5px;font-weight:600}
+  .panel .ph-sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+  .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+
+  .alert{display:flex;gap:11px;align-items:flex-start;padding:11px 13px;border-radius:9px;border:1px solid var(--border);background:var(--card);margin-bottom:9px}
+  .alert .bar{width:3px;align-self:stretch;border-radius:3px;flex-shrink:0}
+  .alert.warn .bar{background:var(--amber)}.alert.down .bar{background:var(--down)}.alert.up .bar{background:var(--up)}
+  .alert .txt{flex:1}
+  .alert .txt b{font-weight:600;font-size:13px}
+  .alert .txt p{margin:2px 0 0;color:var(--muted);font-size:12px}
+  .alert .tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:3px 7px;border-radius:5px;white-space:nowrap}
+  .alert.warn .tag{background:#FBF2DF;color:var(--amber)}.alert.down .tag{background:#FAE8E5;color:var(--down)}.alert.up .tag{background:#E5F1EB;color:var(--up)}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:600;padding:0 10px 9px;border-bottom:1px solid var(--border)}
+  th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+  td{padding:11px 10px;border-bottom:1px solid var(--border-2);color:var(--ink)}
+  tr:last-child td{border-bottom:none}
+  td.name{font-weight:600}
+  .pill{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:20px}
+  .pill.ok{background:#E5F1EB;color:var(--up)}.pill.bad{background:#FAE8E5;color:var(--down)}.pill.mid{background:#FBF2DF;color:var(--amber)}
+
+  /* ===== sub-tabs ===== */
+  .subtabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin:6px 0 20px}
+  .subtabs button{all:unset;cursor:pointer;padding:9px 15px;font-size:13px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .subtabs button:hover{color:var(--ink)}
+  .subtabs button.active{color:var(--green);border-bottom-color:var(--green)}
+  .subpane{display:none}.subpane.active{display:block}
+
+  /* ===== threshold legend ===== */
+  .thr-legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--muted);background:var(--card);border:1px solid var(--border);border-radius:9px;padding:9px 14px;margin-bottom:14px}
+  .thr-legend .lg{display:inline-flex;align-items:center;gap:6px;font-weight:500}
+  .thr-legend .sq{width:11px;height:11px;border-radius:3px}
+  .thr-legend b{color:var(--ink);font-weight:600}
+
+  /* ===== tree ===== */
+  .tree{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+  .tree .thead,.tree .row{display:grid;align-items:center;grid-template-columns:minmax(210px,1.6fr) repeat(6,minmax(56px,.82fr)) minmax(154px,1.1fr);gap:6px}
+  .tree .thead{padding:11px 16px;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:600}
+  .tree .thead>div{text-align:right}.tree .thead>div:first-child{text-align:left}
+  .row{padding:0 16px;border-bottom:1px solid var(--border-2);min-height:48px;transition:background .12s}
+  .row:hover{background:#FBFAF6}
+  .row.lvl1{font-weight:600}
+  .row.lvl2{background:#FCFBF8}
+  .row.lvl3{background:#FAF8F3}
+  .kids .row:last-child{border-bottom:1px solid var(--border-2)}
+  .tw-name{display:flex;align-items:center;gap:7px;min-width:0;cursor:default;padding:6px 0}
+  .tw-name[data-target]{cursor:pointer}
+  .tw-name .chev{width:15px;height:15px;flex-shrink:0;color:var(--faint);transition:transform .15s}
+  .tw-name.open .chev{transform:rotate(90deg)}
+  .tw-name .spacer-chev{width:15px;flex-shrink:0}
+  .tw-name .ico{width:7px;height:7px;border-radius:2px;flex-shrink:0}
+  .tw-name .nmwrap{min-width:0}
+  .tw-name .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;font-size:13px}
+  .tw-name .fmttag{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);background:var(--bg);border:1px solid var(--border-2);border-radius:4px;padding:1px 5px;margin-left:6px}
+  .tw-name .why{font-size:11px;color:var(--muted);display:block;margin-top:1px}
+  .tw-name .why b{color:var(--ink);font-weight:600}
+  .indent1{padding-left:18px}.indent2{padding-left:38px}
+  .cell{font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right}
+  .cellwrap{display:inline-flex;align-items:center;gap:5px;justify-content:flex-end;padding:3px 8px;border-radius:6px;font-weight:600}
+  .cellwrap .dot{width:6px;height:6px;border-radius:50%}
+  .tier-good{background:rgba(46,125,91,.13);color:#1f6b4a}
+  .tier-watch{background:rgba(183,121,31,.14);color:#8a5a12}
+  .tier-bad{background:rgba(176,70,58,.13);color:#993529}
+  .tier-good .dot{background:var(--up)}.tier-watch .dot{background:var(--amber)}.tier-bad .dot{background:var(--down)}
+  .acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
+  .abtn{all:unset;cursor:pointer;font-size:11px;font-weight:600;padding:5px 9px;border-radius:6px;border:1px solid var(--border);white-space:nowrap;text-align:center}
+  .abtn.ghost{color:var(--muted)}
+  .abtn.on{color:#fff;background:var(--green-2);border-color:var(--green-2)}
+  .abtn.off{color:#fff;background:var(--down);border-color:var(--down)}
+  .abtn.scale{color:#fff;background:var(--green);border-color:var(--green)}
+  .abtn.cap{color:#fff;background:var(--amber);border-color:var(--amber)}
+  .abtn:hover{filter:brightness(.96)}
+  .statuspill{justify-self:end;font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:20px}
+  .kids{display:none}.kids.open{display:block}
+
+  /* ===== creative ===== */
+  .fmt-row{display:grid;grid-template-columns:178px 90px 1fr;gap:16px;align-items:center;padding:12px 0;border-bottom:1px solid var(--border-2)}
+  .fmt-row:last-child{border-bottom:none}
+  .fmt-name{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
+  .fmt-name .badge{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 6px;border-radius:4px;background:#eef6f1;color:#1f6b4a}
+  .fmt-bar{height:8px;background:var(--border-2);border-radius:5px;overflow:hidden}
+  .fmt-bar i{display:block;height:100%;background:var(--green);border-radius:5px}
+  .fmt-metrics{display:flex;gap:22px;flex-wrap:wrap}
+  .fmt-metrics .mm{font-size:11px;color:var(--faint);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  .fmt-metrics .mm b{display:block;font-size:14.5px;color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0}
+  .asset{display:flex;gap:13px;align-items:center;padding:13px 0;border-bottom:1px solid var(--border-2)}
+  .asset:last-child{border-bottom:none}
+  .thumb{width:62px;height:82px;border-radius:7px;flex-shrink:0;overflow:hidden;border:1px solid var(--border);background:#eee}
+  .thumb svg{display:block;width:100%;height:100%}
+  .tbar{display:flex;align-items:center;gap:10px;margin-bottom:11px;flex-wrap:wrap}
+  .tfilterwrap{display:inline-flex;align-items:center;gap:7px;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 11px;min-width:180px}
+  .tfilterwrap svg{opacity:.45;flex-shrink:0}
+  .tfilter{all:unset;font-size:12.5px;color:var(--ink);width:100%}
+  .tfilter::placeholder{color:var(--faint)}
+  .thint{font-size:11px;color:var(--faint)}
+  .texport,.creative-export{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--green);background:var(--card);border:1px solid var(--border);border-radius:8px;padding:7px 12px}
+  .texport{margin-left:auto}
+  .texport:hover,.creative-export:hover{border-color:var(--green-2)}
+  .texport svg,.creative-export svg{opacity:.7}
+  thead th[data-dir]{cursor:pointer;user-select:none}
+  thead th.sort-asc::after{content:"▲";font-size:8px;margin-left:5px;color:var(--green-2)}
+  thead th.sort-desc::after{content:"▼";font-size:8px;margin-left:5px;color:var(--green-2)}
+  thead th[data-dir]:hover{color:var(--green)}
+  .asset .ainfo{flex:1;min-width:0}
+  .asset .ainfo h5{margin:0 0 3px;font-size:13.5px;font-weight:600}
+  .asset .ainfo .where{font-size:11.5px;color:var(--muted)}
+  .asset .ainfo .where b{color:var(--ink);font-weight:600}
+  .asset .ametrics{display:flex;gap:18px;text-align:right}
+  .asset .ametrics .mm{font-size:10px;color:var(--faint);font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+  .asset .ametrics .mm b{display:block;font-size:14px;color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0}
+  .deploy{display:flex;gap:13px;align-items:flex-start;background:#F2F7F4;border:1px solid #cfe3d8;border-radius:9px;padding:13px 15px;margin-bottom:10px}
+  .deploy .ic{width:30px;height:30px;border-radius:8px;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .deploy .di{flex:1}
+  .deploy .di b{font-weight:600;font-size:13.5px}
+  .deploy .di p{margin:3px 0 0;font-size:12.5px;color:#3e5a4e}
+  .deploy .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+  .deploy .tg{font-size:11px;font-weight:600;background:#fff;border:1px solid #cfe3d8;color:var(--green);padding:3px 9px;border-radius:20px}
+  .deploy .act{align-self:center}
+  .ratepill{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:3px 8px;border-radius:5px}
+  .rate-best{background:#E5F1EB;color:#1f6b4a}.rate-good{background:#EEF3EF;color:#3e5a4e}.rate-low{background:#FAE8E5;color:#993529}.rate-learn{background:#FBF2DF;color:#8a5a12}
+
+  .recon{display:grid;grid-template-columns:1fr auto 1fr;gap:20px;align-items:center}
+  .recon .box{text-align:center;padding:22px}
+  .recon .box .cap{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--faint);font-weight:600}
+  .recon .box .big{font-size:34px;font-weight:700;letter-spacing:-1px;margin:8px 0 4px;font-variant-numeric:tabular-nums}
+  .recon .box.claim .big{color:var(--faint)}
+  .recon .box.truth .big{color:var(--green)}
+  .recon .box .note{font-size:11.5px;color:var(--muted)}
+  .recon .arrow{display:flex;flex-direction:column;align-items:center;color:var(--amber);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+  .recon .arrow .gap{font-size:18px;font-weight:700;color:var(--amber)}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin-top:10px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:11px;height:3px;border-radius:2px;display:inline-block}
+
+  .rec{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:0;margin-bottom:13px;overflow:hidden}
+  .rec-top{display:flex;gap:14px;padding:16px 18px}
+  .rec-rank{width:30px;height:30px;flex-shrink:0;border-radius:8px;background:var(--green);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .rec-body{flex:1;min-width:0}
+  .rec-body h4{margin:0 0 4px;font-size:15px;font-weight:600;letter-spacing:-.1px}
+  .rec-body .ev{color:var(--muted);font-size:12.5px;margin:0}
+  .rec-meta{display:flex;gap:22px;padding:12px 18px;border-top:1px solid var(--border-2);background:#FBFAF6;flex-wrap:wrap;align-items:center}
+  .rec-meta .m{display:flex;flex-direction:column;gap:1px}
+  .rec-meta .m .k{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:600}
+  .rec-meta .m .v{font-size:13px;font-weight:600}
+  .rec-meta .m .v.pos{color:var(--up)}
+  .conf{display:inline-flex;align-items:center;gap:5px}
+  .conf .d{width:7px;height:7px;border-radius:50%}
+  .rec-meta .act{margin-left:auto;display:inline-flex;align-items:center;gap:7px}
+  .btn-line{all:unset;cursor:pointer;font-size:12px;font-weight:600;color:var(--green);display:inline-flex;align-items:center;gap:5px}
+  .btn-line:hover{text-decoration:underline}
+  .btn-solid{all:unset;cursor:pointer;font-size:12.5px;font-weight:600;color:#fff;background:var(--green);padding:8px 14px;border-radius:7px}
+  .btn-solid:hover{filter:brightness(.95)}
+  .tag-cat{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:3px 8px;border-radius:5px;background:var(--bg);color:var(--muted);border:1px solid var(--border-2)}
+
+  .chart svg{display:block;width:100%;height:auto;overflow:visible}
+  .ax{fill:var(--faint);font-size:10px}.gl{stroke:var(--border-2);stroke-width:1}
+
+  .overlay{position:fixed;inset:0;background:rgba(26,24,19,.32);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50}
+  .overlay.show{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:392px;max-width:92vw;background:var(--card);box-shadow:-12px 0 40px rgba(26,24,19,.14);transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.1,1);z-index:60;display:flex;flex-direction:column}
+  .drawer.show{transform:none}
+  .drawer .dh{padding:20px 22px 16px;border-bottom:1px solid var(--border);position:relative}
+  .drawer .dh .eyebrow{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--green-2);font-weight:600}
+  .drawer .dh h2{margin:5px 0 2px;font-size:19px;font-weight:700;letter-spacing:-.3px}
+  .drawer .dh .dv{font-size:13px;color:var(--muted)}
+  .drawer .dh .close{position:absolute;top:16px;right:18px;width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:#fff;cursor:pointer;color:var(--muted);font-size:16px;line-height:1}
+  .drawer .db{padding:18px 22px;overflow-y:auto;flex:1}
+  .field{margin-bottom:20px}
+  .field .ft{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--faint);font-weight:600;margin-bottom:7px}
+  .formula{font-family:'DM Mono',monospace;font-size:12.5px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 13px;line-height:1.6;color:var(--ink);white-space:pre-wrap}
+  .src-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-2)}
+  .src-row:last-child{border-bottom:none}
+  .src-row .pip{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+  .src-row .sn{font-weight:600;font-size:13px}
+  .src-row .sd{font-size:11.5px;color:var(--muted)}
+  .src-row .obj{margin-left:auto;font-family:'DM Mono',monospace;font-size:11px;color:var(--faint);background:var(--bg);padding:3px 7px;border-radius:5px}
+  .meta-row{display:flex;justify-content:space-between;font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--border-2)}
+  .meta-row span:first-child{color:var(--muted)}
+  .meta-row span:last-child{font-weight:600}
+  .caveat{display:flex;gap:9px;background:#FBF2DF;border:1px solid #EAD9AE;border-radius:8px;padding:11px 12px;font-size:12px;color:#7A5A12;line-height:1.5}
+
+  .lenschip{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:2px 7px;border-radius:4px;margin-left:8px}
+  .lens-gap{background:#FAE8E5;color:#993529}.lens-pattern{background:#E5F1EB;color:#1f6b4a}
+  .imx td .cellwrap{font-size:12px}
+  .insight-note{font-size:12px;color:var(--muted);margin:2px 0 16px}
+  .kfig{display:inline-block;font-weight:700;font-variant-numeric:tabular-nums}
+
+  @media(max-width:880px){
+    .side{position:fixed;bottom:0;left:0;top:auto;height:auto;width:100%;flex-direction:row;padding:8px;z-index:40}
+    .brandmark,.side .foot,.nav .sub{display:none}
+    .nav{flex-direction:row;overflow-x:auto;width:100%;gap:4px}
+    .nav button{flex-direction:column;gap:3px;font-size:10px;padding:7px 10px;text-align:center}
+    .main{padding-bottom:64px}
+    .g6,.g3,.g2{grid-template-columns:1fr 1fr}
+    .span2,.span3,.span4,.span6{grid-column:span 2}
+    .recon{grid-template-columns:1fr}
+    .content{padding:18px}.topbar{padding:12px 16px}
+    .tree{overflow-x:auto}.tree .thead,.tree .row{min-width:760px}
+    .fmt-row{grid-template-columns:1fr}
+  }
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brandmark"><div class="dot"></div><div><b>Marktech</b><span>Growth Intelligence</span></div></div>
+    <nav class="nav" id="nav">
+      <div class="sub">Leadership</div>
+      <button data-screen="overview" class="active"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>CXO Overview</button>
+      <div class="sub">Channels</div>
+      <button data-screen="meta"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c-3 0-5 4-5 9s2 9 5 9"/><path d="M12 3c3 0 5 4 5 9s-2 9-5 9"/><circle cx="12" cy="12" r="9"/></svg>Meta Ads</button>
+      <button data-screen="google"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Google Ads</button>
+      <div class="sub">Core Engine</div>
+      <button data-screen="insights"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/><circle cx="12" cy="12" r="4"/></svg>Insights</button>
+      <button data-screen="recon"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M9 12h6"/></svg>Reconciliation</button>
+      <button data-screen="recs"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2Z"/></svg>Recommendations</button>
+    </nav>
+    <div class="foot"><b>Mockup v0.2</b><br>Advisory engine · Shopify-truth · MER-led. Numbers are illustrative.</div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="title">Brand: <b>Looma</b> (Apparel)</div>
+      <div class="ctrl"><span class="cap">Brand</span> Switch<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></div>
+      <div class="ctrl"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Last 30 days<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></div>
+      <div class="spacer"></div>
+      <div class="toggle" id="lineageToggle" role="switch" aria-checked="false" tabindex="0"><span class="sw"></span> Show data lineage</div>
+    </div>
+
+    <div class="content">
+      <!-- OVERVIEW -->
+      <section class="screen active" id="screen-overview">
+        <div class="h1">Business health</div>
+        <div class="sub1">What the founder sees first. Money and efficiency, not marketing vanity. Every tile is sourced from the transactional truth (Shopify), with ad platforms used only as directional inputs.</div>
+        <div class="grid g6" id="ovKpis"></div>
+        <div class="sec-label">Signals from the engine</div>
+        <div id="ovAlerts"></div>
+        <div class="grid g2" style="margin-top:8px">
+          <div class="panel"><div class="panel-head"><div><h3>Revenue vs ad spend</h3><div class="ph-sub">Shopify net revenue against blended Meta + Google spend</div></div></div><div class="chart" id="chRevSpend"></div><div class="legend"><span><i style="background:var(--green)"></i> Net revenue</span><span><i style="background:var(--amber)"></i> Ad spend</span></div></div>
+          <div class="panel"><div class="panel-head"><div><h3>New vs returning revenue</h3><div class="ph-sub">First-time buyers against repeat customers, by week</div></div></div><div class="chart" id="chCohort"></div><div class="legend"><span><i style="background:var(--green)"></i> New customers</span><span><i style="background:#9DBBAD"></i> Returning</span></div></div>
+        </div>
+      </section>
+
+      <!-- META -->
+      <section class="screen" id="screen-meta">
+        <div class="h1">Meta Ads</div>
+        <div class="sub1">An operating view, not a report. Drill from campaign to adset to ad, read every metric against its target by colour, and act on the engine's call for each ad. The creative tab finds your winners and the adsets that should be running them.</div>
+        <div class="grid g3" id="metaKpis"></div>
+        <div class="subtabs" data-tabs="meta" style="margin-top:18px">
+          <button class="active" data-pane="meta-structure">Structure &amp; actions</button>
+          <button data-pane="meta-creative">Creative intelligence</button>
+        </div>
+        <div class="subpane active" id="pane-meta-structure">
+          <div class="thr-legend"><b>Colour vs target:</b><span class="lg"><span class="sq" style="background:var(--up)"></span> At or above target</span><span class="lg"><span class="sq" style="background:var(--amber)"></span> Between breakeven and target</span><span class="lg"><span class="sq" style="background:var(--down)"></span> Below breakeven, act now</span><span style="margin-left:auto;color:var(--faint)">ROAS target 3.0× · breakeven 1.6× · Freq cap 3.0</span></div>
+          <div class="tree" id="metaTree"></div>
+          <p class="ph-sub" style="margin-top:11px">Tap a campaign or adset to expand. Ad-level calls are the engine's recommendation; the growth team decides and acts.</p>
+        </div>
+        <div class="subpane" id="pane-meta-creative">
+          <div class="tbar" style="justify-content:flex-end;margin-bottom:14px"><button class="creative-export"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>Export report for creatives team</button></div>
+          <div class="grid g2">
+            <div class="panel"><div class="panel-head"><div><h3>Performance by creative format</h3><div class="ph-sub">Which formats earn their spend. Bar shows ROAS relative to the best format.</div></div></div><div id="fmtPerf" style="margin-top:8px"></div></div>
+            <div class="panel"><div class="panel-head"><div><h3>Top assets</h3><div class="ph-sub">Your highest-return creatives and where they currently run</div></div></div><div id="topAssets" style="margin-top:4px"></div></div>
+          </div>
+          <div class="sec-label">Deployment opportunities</div>
+          <div id="deployList"></div>
+          <div class="sec-label">Fatigue watch</div>
+          <div id="fatigueList"></div>
+        </div>
+      </section>
+
+      <!-- GOOGLE -->
+      <section class="screen" id="screen-google">
+        <div class="h1">Google Ads</div>
+        <div class="sub1">Same discipline as Meta, adapted to Google's structure. Drill into campaigns, ad groups, keywords and asset groups, colour-graded against target, with a directive call on each leaf. Brand and non-brand are kept apart because brand search flatters reported ROAS.</div>
+        <div class="grid g3" id="googleKpis"></div>
+        <div class="subtabs" data-tabs="google" style="margin-top:18px">
+          <button class="active" data-pane="google-structure">Structure &amp; actions</button>
+          <button data-pane="google-assets">Asset &amp; keyword intelligence</button>
+        </div>
+        <div class="subpane active" id="pane-google-structure">
+          <div class="thr-legend"><b>Colour vs target:</b><span class="lg"><span class="sq" style="background:var(--up)"></span> At or above target</span><span class="lg"><span class="sq" style="background:var(--amber)"></span> Acceptable, watch</span><span class="lg"><span class="sq" style="background:var(--down)"></span> Below breakeven, act now</span><span style="margin-left:auto;color:var(--faint)">ROAS target 3.0× · CPA cap ₹1,400 · Conv target 2.5%</span></div>
+          <div class="tree" id="googleTree"></div>
+          <p class="ph-sub" style="margin-top:11px">PMax is shown at asset-group level since Google does not expose placements. Search shows keywords and responsive ads.</p>
+        </div>
+        <div class="subpane" id="pane-google-assets">
+          <div class="grid g2">
+            <div class="panel"><div class="panel-head"><div><h3>RSA asset performance</h3><div class="ph-sub">Headlines and descriptions, rated by Google. Replace the Low ones.</div></div></div><div id="rsaAssets" style="margin-top:6px"></div></div>
+            <div class="panel"><div class="panel-head"><div><h3>PMax asset groups</h3><div class="ph-sub">Group-level health and the refresh the engine recommends</div></div></div><div id="pmaxGroups" style="margin-top:6px"></div></div>
+          </div>
+          <div class="sec-label">Negative keyword harvest</div>
+          <div class="panel" style="padding:14px 18px"><table id="negTable"></table></div>
+          <div class="sec-label">Directive actions</div>
+          <div id="googleDeploy"></div>
+        </div>
+      </section>
+
+      <!-- INSIGHTS -->
+      <section class="screen" id="screen-insights">
+        <div class="h1">Cross-channel insights</div>
+        <div class="sub1">Where the tool earns its keep. Each card reads Shopify, GA4, Meta and Google together, marks itself a gap (a deterrent to growth) or a pattern (a marker for scaling), and hands over a specific action. No human is doing this join across four platforms every day.</div>
+        <div class="subtabs" data-tabs="ins">
+          <button class="active" data-pane="ins-geo">Geography</button>
+          <button data-pane="ins-prod">Products &amp; CRO</button>
+          <button data-pane="ins-life">Customer lifecycle</button>
+          <button data-pane="ins-cat">Catalogue &amp; replication</button>
+        </div>
+
+        <div class="subpane active" id="pane-ins-geo">
+          <div class="insight-note">Shopify shipping geography and orders, joined to GA4 conversion by city and to ad spend by region.</div>
+          <div class="panel" style="padding:14px 18px;margin-bottom:16px"><table id="geoTable"></table></div>
+          <div id="geoCards"></div>
+        </div>
+        <div class="subpane" id="pane-ins-prod">
+          <div class="insight-note">GA4 product traffic and engagement, joined to Shopify conversion, contribution and inventory.</div>
+          <div class="panel" style="padding:14px 18px;margin-bottom:16px"><table id="prodTable"></table></div>
+          <div id="prodCards"></div>
+        </div>
+        <div class="subpane" id="pane-ins-life">
+          <div class="insight-note">Shopify new versus returning behaviour and cohort LTV, joined to channel attribution.</div>
+          <div class="grid g2" style="margin-bottom:16px">
+            <div class="panel"><div class="panel-head"><div><h3>New-buyer acquisition by channel</h3><div class="ph-sub">Who brings first-time buyers most cheaply</div></div></div><table id="acqTable" style="margin-top:8px"></table></div>
+            <div class="panel"><div class="panel-head"><div><h3>Returning-customer conversion by channel</h3><div class="ph-sub">Who drives repeat purchases best</div></div></div><table id="retTable" style="margin-top:8px"></table></div>
+          </div>
+          <div id="lifeCards"></div>
+        </div>
+        <div class="subpane" id="pane-ins-cat">
+          <div class="insight-note">Meta catalogue and DPA performance by product set, audience and campaign, aligned with Google Shopping and creative-level data.</div>
+          <div id="catCards"></div>
+        </div>
+      </section>
+
+      <!-- RECONCILIATION -->
+      <section class="screen" id="screen-recon">
+        <div class="h1">Reconciliation</div>
+        <div class="sub1">The truth layer. Platforms double-count and over-claim. This screen shows the gap between what every channel reports and what the business actually earned, then expresses the over-claim as a factor you can trend.</div>
+        <div class="panel"><div class="recon">
+          <div class="box claim"><div class="cap">Platforms claim</div><div class="big">₹6.01 Cr</div><div class="note">Meta-reported + Google-reported revenue, summed</div></div>
+          <div class="arrow"><span class="gap">2.49×</span>over-claim<svg width="40" height="14" viewBox="0 0 40 14" fill="none" stroke="var(--amber)" stroke-width="2" style="margin-top:6px"><path d="M0 7h36M30 2l6 5-6 5"/></svg></div>
+          <div class="box truth"><div class="cap">Shopify banked</div><div class="big">₹2.41 Cr</div><div class="note">Net revenue actually settled in the period</div></div>
+        </div></div>
+        <div class="grid g3" id="reconKpis" style="margin-top:18px"></div>
+        <div class="panel" style="margin-top:18px"><div class="panel-head"><div><h3>Reporting inflation factor over time</h3><div class="ph-sub">Platform-reported revenue ÷ Shopify-attributed revenue. Rising lines mean the platform is taking more credit than it earns.</div></div></div><div class="chart" id="chInflation"></div><div class="legend"><span><i style="background:var(--src-meta)"></i> Meta</span><span><i style="background:var(--amber)"></i> Google</span><span><i style="background:var(--faint)"></i> 1.0× (perfect agreement)</span></div></div>
+      </section>
+
+      <!-- RECOMMENDATIONS -->
+      <section class="screen" id="screen-recs">
+        <div class="h1">Recommendations</div>
+        <div class="sub1">The engine ranks opportunities by impact, confidence and effort, and hands each one to a human with its evidence attached. Nothing executes automatically. Every card links back to the data that produced it.</div>
+        <div id="recsList"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dh"><button class="close" id="drawerClose" aria-label="Close">✕</button><div class="eyebrow">Data lineage</div><h2 id="dMetric">Metric</h2><div class="dv" id="dValue"></div></div>
+  <div class="db">
+    <div class="field"><div class="ft">Definition</div><div id="dDef" style="font-size:13px;line-height:1.55"></div></div>
+    <div class="field"><div class="ft">Source systems</div><div id="dSources"></div></div>
+    <div class="field"><div class="ft">How it is calculated</div><div class="formula" id="dFormula"></div></div>
+    <div class="field"><div class="ft">Pipeline</div><div id="dPipe"></div></div>
+    <div class="field" id="dCaveatWrap" style="display:none"><div class="ft">Caveat</div><div class="caveat" id="dCaveat"></div></div>
+  </div>
+</aside>
+
+<script>
+const SRC={
+  shopify:{name:"Shopify",color:"var(--src-shopify)",desc:"Orders, customers, refunds, COGS",api:"Admin API"},
+  meta:{name:"Meta Ads",color:"var(--src-meta)",desc:"Spend, impressions, reported conv.",api:"Marketing API"},
+  google:{name:"Google Ads",color:"var(--src-google)",desc:"Spend, clicks, reported conv.",api:"Google Ads API"},
+  ga4:{name:"GA4",color:"var(--src-ga4)",desc:"Sessions, landing pages, paths",api:"Data API"},
+  gsc:{name:"Search Console",color:"var(--src-gsc)",desc:"Queries, impressions, position",api:"Search API"},
+  derived:{name:"Derived",color:"var(--src-derived)",desc:"Computed in the metrics layer",api:"Semantic layer"}
+};
+const M={
+  rev:{label:"Net Revenue",value:"₹2.41 Cr",delta:"+14%",dir:"up",cmp:"vs prev 30d",def:"Money actually settled through the store in the period. The single source of truth for revenue.",srcs:["shopify"],formula:"Net Revenue =\n  Σ order subtotal\n  − discounts\n  − refunds",cadence:"Near real-time",grain:"Order"},
+  spend:{label:"Ad Spend (Blended)",value:"₹86.4 L",delta:"+9%",dir:"warn",cmp:"vs prev 30d",def:"Total paid media cost across both platforms, from billing-accurate spend.",srcs:["meta","google"],formula:"Blended Spend =\n  Meta (₹52.0 L) + Google (₹34.4 L)",cadence:"Every 3 hours",grain:"Campaign / day"},
+  mer:{label:"MER",value:"2.79×",delta:"+5%",dir:"up",cmp:"vs prev 30d",def:"Marketing Efficiency Ratio. The north-star efficiency metric, blended across all paid channels.",srcs:["shopify","meta","google","derived"],formula:"MER =\n  Net Revenue (Shopify)\n  ÷ Blended Ad Spend",cadence:"Hourly",grain:"Account / day",caveat:"Truth metric. Built on Shopify revenue, never platform-reported revenue."},
+  cm:{label:"Contribution Margin",value:"₹61.2 L",sub:"25.4%",delta:"+2.1 pts",dir:"up",cmp:"vs prev 30d",def:"What is left after fulfilling and acquiring the order. Tells a founder whether growth is profitable.",srcs:["shopify","meta","google","derived"],formula:"CM =\n  Net Revenue − COGS\n  − shipping − payment fees\n  − ad spend",cadence:"Daily",grain:"Order / day",caveat:"Depends on COGS in Shopify's cost-per-item field. Flagged amber where unset."},
+  ncac:{label:"New-Customer CAC",value:"₹1,180",delta:"−6%",dir:"up",cmp:"vs prev 30d",def:"Cost to acquire one genuinely new customer, using prospecting spend only.",srcs:["meta","google","shopify","derived"],formula:"nCAC =\n  Prospecting spend\n  ÷ New customers",cadence:"Daily",grain:"Cohort"},
+  payback:{label:"CAC Payback",value:"1.9 mo",delta:"−0.3 mo",dir:"up",cmp:"vs prev 30d",def:"How long a new customer takes to repay their acquisition cost in contribution.",srcs:["shopify","derived"],formula:"Payback =\n  nCAC ÷ monthly contribution\n  per cohort",cadence:"Daily",grain:"Cohort"},
+  mSpend:{label:"Meta Spend",value:"₹52.0 L",delta:"+11%",dir:"warn",cmp:"vs prev 30d",def:"Billing-accurate Meta spend in the period.",srcs:["meta"],formula:"= Σ campaign spend",cadence:"Every 3 hours",grain:"Campaign"},
+  mRoas:{label:"Meta-reported ROAS",value:"6.2×",delta:"−0.4×",dir:"down",cmp:"vs prev 30d",def:"Meta's own ROAS claim. Directional only, due to view-through and double-counting.",srcs:["meta"],formula:"= Meta-reported revenue\n  ÷ Meta spend",cadence:"Every 3 hours",grain:"Campaign",caveat:"Not the truth number. Compare with Shopify-attributed beside it."},
+  mAttr:{label:"Shopify-attributed rev",value:"₹1.46 Cr",delta:"+8%",dir:"up",cmp:"vs prev 30d",def:"Real Shopify revenue directionally credited to Meta via UTM + GA4.",srcs:["shopify","ga4","derived"],formula:"= Σ Shopify orders where\n  channel = Meta",cadence:"Daily",grain:"Order",caveat:"Directional, not deterministic. Incrementality testing is the planned upgrade."},
+  gSpend:{label:"Google Spend",value:"₹34.4 L",delta:"+5%",dir:"warn",cmp:"vs prev 30d",def:"Billing-accurate Google spend.",srcs:["google"],formula:"= Σ campaign spend",cadence:"Every 3 hours",grain:"Campaign"},
+  gRoas:{label:"Google-reported ROAS",value:"8.1×",delta:"+0.3×",dir:"down",cmp:"vs prev 30d",def:"Google's reported ROAS, flattered by branded search.",srcs:["google"],formula:"= Google-reported revenue\n  ÷ Google spend",cadence:"Every 3 hours",grain:"Campaign",caveat:"Branded search inflates this. See the brand split."},
+  gAttr:{label:"Shopify-attributed rev",value:"₹95.0 L",delta:"+4%",dir:"up",cmp:"vs prev 30d",def:"Real Shopify revenue directionally credited to Google.",srcs:["shopify","ga4","derived"],formula:"= Σ Shopify orders where\n  channel = Google",cadence:"Daily",grain:"Order"},
+  rClaim:{label:"Total platform claim",value:"₹6.01 Cr",dir:"warn",def:"Sum of what every platform reports. Inflated by double-counting.",srcs:["meta","google"],formula:"= Meta (₹3.22 Cr)\n  + Google (₹2.79 Cr)"},
+  rTruth:{label:"Shopify net revenue",value:"₹2.41 Cr",delta:"+14%",dir:"up",cmp:"vs prev 30d",def:"The only real revenue: money settled in the store.",srcs:["shopify"],formula:"= Net Revenue (Shopify)"},
+  rBlended:{label:"Blended truth MER",value:"2.79×",delta:"+5%",dir:"up",cmp:"vs prev 30d",def:"Real efficiency once the over-claim is removed.",srcs:["shopify","meta","google","derived"],formula:"= Shopify revenue ÷ blended spend"},
+  mMarginal:{label:"Marginal ROAS",value:"2.1×",dir:"up",cmp:"at current spend",def:"ROAS of the next rupee of spend, from the response curve. This is what tells you whether to scale.",srcs:["meta","shopify","derived"],formula:"= d(Revenue)/d(Spend)\n  from fitted saturation curve",cadence:"Weekly",grain:"Channel",caveat:"Above the 1.6× breakeven, so profitable room to scale remains."}
+};
+function chipsFor(s){return s.map(k=>`<span class="chip"><span class="pip" style="background:${SRC[k].color}"></span>${SRC[k].name}</span>`).join("")}
+function arrow(d){if(d==="up")return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M7 17 17 7M9 7h8v8"/></svg>';if(d==="down")return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M7 7 17 17M17 9v8H9"/></svg>';return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12h14"/></svg>'}
+function tile(id,opts){const m=M[id];if(!m)return"";const cls=opts&&opts.cls?opts.cls:"";const vs=m.sub?` <small>${m.sub}</small>`:"";const dh=m.delta?`<div class="delta ${m.dir}">${arrow(m.dir)} ${m.delta} <span class="cmp">${m.cmp||""}</span></div>`:"";return `<div class="tile ${cls}" data-metric="${id}"><button class="inspect" data-metric="${id}" aria-label="Inspect ${m.label}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></button><div class="lbl">${m.label}</div><div class="val">${m.value}${vs}</div>${dh}<div class="srcs">${chipsFor(m.srcs)}</div></div>`}
+
+/* ===== threshold engine ===== */
+const metaThr={roas:{good:3.0,bad:1.6,higher:true},cpa:{good:900,bad:1400,higher:false},ctr:{good:1.5,bad:0.9,higher:true},cpm:{good:280,bad:420,higher:false},freq:{good:2.0,bad:3.0,higher:false}};
+const gThr={roas:{good:3.0,bad:1.6,higher:true},cpa:{good:900,bad:1400,higher:false},convrate:{good:2.5,bad:1.2,higher:true},ctr:{good:4.0,bad:2.0,higher:true},imprshare:{good:65,bad:40,higher:true}};
+function tier(k,v,thr){const c=thr[k];if(!c||v==null)return null;if(c.higher)return v>=c.good?"good":(v<c.bad?"bad":"watch");return v<=c.good?"good":(v>c.bad?"bad":"watch")}
+function inr(v){return "₹"+Math.round(v).toLocaleString("en-IN")}
+function fmtNum(k,v){if(k==="roas")return v.toFixed(1)+"×";if(k==="cpa"||k==="cpm")return inr(v);if(k==="ctr"||k==="convrate"||k==="imprshare")return v.toFixed(1)+"%";if(k==="freq")return v.toFixed(1);return v}
+function cellHtml(node,k,thr){const v=node.metrics?node.metrics[k]:undefined;if(v===undefined||v===null||v==="—")return `<div class="cell"><span style="color:var(--faint)">—</span></div>`;if(k==="spend")return `<div class="cell">${v}</div>`;const t=tier(k,v,thr);const disp=fmtNum(k,v);if(!t)return `<div class="cell">${disp}</div>`;return `<div class="cell"><span class="cellwrap tier-${t}"><span class="dot"></span>${disp}</span></div>`}
+function statusPill(s){if(!s)return "";const map={good:"tier-good",watch:"tier-watch",bad:"tier-bad"};return `<span class="statuspill ${map[s.tier]||'tier-watch'}">${s.label}</span>`}
+function actionHtml(node){const a=node.action;if(!a)return "";const map={
+  scale:[`<button class="abtn scale">Scale</button>`,`<button class="abtn ghost">Keep on</button>`],
+  on:[`<button class="abtn on">Keep on</button>`,`<button class="abtn ghost">Turn off</button>`],
+  off:[`<button class="abtn off">Turn off</button>`,`<button class="abtn ghost">Keep on</button>`],
+  pause:[`<button class="abtn off">Pause</button>`,`<button class="abtn ghost">Keep</button>`],
+  negative:[`<button class="abtn off">Add negative</button>`,`<button class="abtn ghost">Keep</button>`],
+  cap:[`<button class="abtn cap">Cap spend</button>`,`<button class="abtn ghost">Keep</button>`]
+};return `<div class="acts">${(map[a]||[]).join("")}</div>`}
+let _uid=0;
+function buildRows(nodes,depth,thr,cols){let html="";nodes.forEach(n=>{const id="k"+(_uid++);const has=n.children&&n.children.length;const ind=depth===0?"":(depth===1?"indent1":"indent2");const chev=has?`<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m9 6 6 6-6 6"/></svg>`:`<span class="spacer-chev"></span>`;const tag=n.fmt?`<span class="fmttag">${n.fmt}</span>`:"";const why=n.why?`<span class="why">${n.why}</span>`:"";const nameCell=`<div class="tw-name ${ind}" ${has?`data-target="${id}"`:""}>${chev}<span class="ico" style="background:${n.tierColor||'var(--faint)'}"></span><div class="nmwrap"><span class="nm">${n.name}${tag}</span>${why}</div></div>`;const cells=cols.map(c=>cellHtml(n,c.k,thr)).join("");const last=has?statusPill(n.status):actionHtml(n);html+=`<div class="row lvl${depth+1}">${nameCell}${cells}<div style="display:flex;justify-content:flex-end">${last}</div></div>`;if(has)html+=`<div class="kids" id="${id}">${buildRows(n.children,depth+1,thr,cols)}</div>`});return html}
+function renderTree(elId,nodes,thr,cols,leafLabel){const el=document.getElementById(elId);const thead=`<div class="thead"><div>${leafLabel}</div>${cols.map(c=>`<div>${c.l}</div>`).join("")}<div>Action</div></div>`;el.innerHTML=thead+buildRows(nodes,0,thr,cols)}
+
+/* ===== Meta tree data ===== */
+const TC=(t)=>t==="good"?"var(--up)":t==="bad"?"var(--down)":"var(--amber)";
+const metaCols=[{k:"spend",l:"Spend"},{k:"roas",l:"ROAS"},{k:"cpa",l:"CPA"},{k:"ctr",l:"CTR"},{k:"cpm",l:"CPM"},{k:"freq",l:"Freq"}];
+const metaTree=[
+ {name:"ASC · Prospecting",tierColor:TC("good"),status:{label:"Scaling",tier:"good"},metrics:{spend:"₹24.1 L",roas:5.4,cpa:870,ctr:1.6,cpm:255,freq:1.9},children:[
+   {name:"Broad 18–45",tierColor:TC("good"),status:{label:"Healthy",tier:"good"},metrics:{spend:"₹11.2 L",roas:6.1,cpa:760,ctr:1.8,cpm:240,freq:1.7},children:[
+     {name:"UGC-Monsoon-03",fmt:"UGC Video",tierColor:TC("good"),action:"scale",why:"<b>Scale.</b> Top return, frequency still low. Move budget here.",metrics:{spend:"₹4.8 L",roas:7.2,cpa:640,ctr:2.4,cpm:210,freq:1.5}},
+     {name:"Static-Founder-01",fmt:"Static",tierColor:TC("watch"),action:"on",why:"<b>Keep on.</b> Solid mid-performer, holding target.",metrics:{spend:"₹3.1 L",roas:4.9,cpa:880,ctr:1.3,cpm:250,freq:1.9}},
+     {name:"Carousel-Bestsellers",fmt:"Carousel",tierColor:TC("good"),action:"on",why:"<b>Keep on.</b> Steady above target.",metrics:{spend:"₹3.3 L",roas:5.2,cpa:820,ctr:1.5,cpm:245,freq:1.8}}
+   ]},
+   {name:"Lookalike 3% Purchasers",tierColor:TC("good"),status:{label:"Healthy",tier:"good"},metrics:{spend:"₹8.4 L",roas:5.0,cpa:910,ctr:1.5,cpm:265,freq:2.1},children:[
+     {name:"UGC-Testimonial-02",fmt:"UGC Video",tierColor:TC("good"),action:"on",why:"<b>Keep on.</b> Reliable on warm lookalikes.",metrics:{spend:"₹4.0 L",roas:5.8,cpa:800,ctr:1.7,cpm:250,freq:1.9}},
+     {name:"Static-Sale-07",fmt:"Static",tierColor:TC("watch"),action:"on",why:"<b>Keep on, watch.</b> CTR slipping, frequency rising. Refresh soon.",metrics:{spend:"₹4.4 L",roas:4.3,cpa:1020,ctr:1.2,cpm:280,freq:2.3}}
+   ]},
+   {name:"Interest · Sustainable fashion",tierColor:TC("watch"),status:{label:"Watch",tier:"watch"},metrics:{spend:"₹4.5 L",roas:4.6,cpa:980,ctr:1.4,cpm:270,freq:2.0},children:[
+     {name:"Static-Eco-04",fmt:"Static",tierColor:TC("watch"),action:"on",why:"<b>Keep on.</b> Above breakeven but soft. Test a video variant.",metrics:{spend:"₹2.4 L",roas:4.1,cpa:1080,ctr:1.1,cpm:290,freq:2.2}},
+     {name:"Founder-VSL-01",fmt:"Founder VSL",tierColor:TC("good"),action:"scale",why:"<b>Scale.</b> Strong and underfunded. Best cold-audience video.",metrics:{spend:"₹2.1 L",roas:5.2,cpa:870,ctr:1.6,cpm:250,freq:1.7}}
+   ]}
+ ]},
+ {name:"Retargeting · 30d",tierColor:TC("watch"),status:{label:"Fatigue risk",tier:"watch"},metrics:{spend:"₹9.8 L",roas:11.2,cpa:410,ctr:2.2,cpm:320,freq:3.4},children:[
+   {name:"Cart abandoners",tierColor:TC("watch"),status:{label:"Fatigued",tier:"bad"},metrics:{spend:"₹5.2 L",roas:13.1,cpa:360,ctr:2.4,cpm:330,freq:3.8},children:[
+     {name:"Static-Urgency-02",fmt:"Static",tierColor:TC("bad"),action:"off",why:"<b>Turn off.</b> Frequency 4.1, fatigued. Replace creative before re-enabling.",metrics:{spend:"₹2.6 L",roas:12.0,cpa:380,ctr:2.1,cpm:340,freq:4.1}},
+     {name:"Carousel-Reviews-01",fmt:"Carousel",tierColor:TC("watch"),action:"on",why:"<b>Keep on, watch.</b> Still strong return, frequency near cap.",metrics:{spend:"₹2.6 L",roas:14.2,cpa:340,ctr:2.7,cpm:320,freq:3.5}}
+   ]},
+   {name:"Site visitors 14d",tierColor:TC("good"),status:{label:"Healthy",tier:"good"},metrics:{spend:"₹4.6 L",roas:9.1,cpa:470,ctr:2.0,cpm:300,freq:2.9},children:[
+     {name:"DPA-Catalogue",fmt:"Catalogue",tierColor:TC("good"),action:"on",why:"<b>Keep on.</b> Efficient dynamic retargeting.",metrics:{spend:"₹4.6 L",roas:9.1,cpa:470,ctr:2.0,cpm:300,freq:2.9}}
+   ]}
+ ]},
+ {name:"Creative Test · ABO",tierColor:TC("bad"),status:{label:"Underperforming",tier:"bad"},metrics:{spend:"₹6.7 L",roas:2.1,cpa:1480,ctr:0.9,cpm:410,freq:1.4},children:[
+   {name:"Test pod A",tierColor:TC("bad"),status:{label:"Below target",tier:"bad"},metrics:{spend:"₹3.4 L",roas:1.7,cpa:1620,ctr:0.8,cpm:430,freq:1.3},children:[
+     {name:"Static-Concept-09",fmt:"Static",tierColor:TC("bad"),action:"off",why:"<b>Turn off.</b> Below breakeven, no conversion signal after ₹1.7 L.",metrics:{spend:"₹1.7 L",roas:1.2,cpa:2010,ctr:0.6,cpm:450,freq:1.2}},
+     {name:"UGC-Concept-11",fmt:"UGC Video",tierColor:TC("watch"),action:"on",why:"<b>Keep on.</b> Promising early signal, give it more spend to learn.",metrics:{spend:"₹1.7 L",roas:2.3,cpa:1340,ctr:1.0,cpm:410,freq:1.4}}
+   ]},
+   {name:"Test pod B",tierColor:TC("watch"),status:{label:"Learning",tier:"watch"},metrics:{spend:"₹3.3 L",roas:2.5,cpa:1290,ctr:1.1,cpm:390,freq:1.5},children:[
+     {name:"Carousel-Concept-03",fmt:"Carousel",tierColor:TC("watch"),action:"on",why:"<b>Keep on.</b> Edging toward target, keep gathering data.",metrics:{spend:"₹3.3 L",roas:2.5,cpa:1290,ctr:1.1,cpm:390,freq:1.5}}
+   ]}
+ ]}
+];
+
+/* ===== Google tree data ===== */
+const gCols=[{k:"spend",l:"Spend"},{k:"roas",l:"ROAS"},{k:"cpa",l:"CPA"},{k:"convrate",l:"Conv %"},{k:"ctr",l:"CTR"},{k:"imprshare",l:"Impr. Sh."}];
+const googleTree=[
+ {name:"Search · Non-brand",tierColor:TC("good"),status:{label:"Scale",tier:"good"},metrics:{spend:"₹8.1 L",roas:3.2,cpa:1010,convrate:2.6,ctr:5.1,imprshare:48},children:[
+   {name:"Linen co-ords",tierColor:TC("good"),status:{label:"Healthy",tier:"good"},metrics:{spend:"₹3.0 L",roas:3.8,cpa:880,convrate:3.1,ctr:6.0,imprshare:55},children:[
+     {name:'"linen co-ord set women"',fmt:"Keyword",tierColor:TC("good"),action:"scale",why:"<b>Raise bids.</b> Best converter in the group, capped by impression share.",metrics:{spend:"₹1.6 L",roas:4.1,cpa:760,convrate:3.8,ctr:6.4,imprshare:58}},
+     {name:'"buy cheap kurta online"',fmt:"Keyword",tierColor:TC("bad"),action:"negative",why:"<b>Add negative.</b> Wrong intent, ₹1.4 L spent at 0.4% conversion.",metrics:{spend:"₹1.4 L",roas:0.7,cpa:3100,convrate:0.4,ctr:4.2,imprshare:51}}
+   ]},
+   {name:"Summer dresses",tierColor:TC("watch"),status:{label:"Watch",tier:"watch"},metrics:{spend:"₹2.6 L",roas:2.9,cpa:1080,convrate:2.4,ctr:4.8,imprshare:44},children:[
+     {name:'"summer dress sale"',fmt:"Keyword",tierColor:TC("watch"),action:"on",why:"<b>Keep.</b> Just under target, seasonal. Hold bids.",metrics:{spend:"₹1.4 L",roas:2.6,cpa:1180,convrate:2.2,ctr:4.6,imprshare:42}},
+     {name:"Summer Dresses RSA",fmt:"Responsive ad",tierColor:TC("good"),action:"on",why:"<b>Keep.</b> Strong ad, see asset tab to lift the two Low descriptions.",metrics:{spend:"₹1.2 L",roas:3.2,cpa:980,convrate:2.6,ctr:5.0,imprshare:46}}
+   ]}
+ ]},
+ {name:"Search · Brand",tierColor:TC("watch"),status:{label:"Cap spend",tier:"watch"},metrics:{spend:"₹7.3 L",roas:18.4,cpa:210,convrate:9.1,ctr:12.0,imprshare:88},children:[
+   {name:"Brand core",tierColor:TC("watch"),status:{label:"Cannibalising",tier:"watch"},metrics:{spend:"₹7.3 L",roas:18.4,cpa:210,convrate:9.1,ctr:12.0,imprshare:88},children:[
+     {name:'"looma"',fmt:"Keyword",tierColor:TC("watch"),action:"cap",why:"<b>Cap spend.</b> ROAS looks great but ~64% would convert via organic anyway.",metrics:{spend:"₹4.2 L",roas:19.0,cpa:200,convrate:9.4,ctr:12.5,imprshare:90}},
+     {name:'"looma reviews"',fmt:"Keyword",tierColor:TC("bad"),action:"negative",why:"<b>Add negative.</b> Research intent, not buyers. Send to organic.",metrics:{spend:"₹0.6 L",roas:2.1,cpa:1900,convrate:0.6,ctr:8.0,imprshare:80}}
+   ]}
+ ]},
+ {name:"Performance Max",tierColor:TC("good"),status:{label:"Healthy",tier:"good"},metrics:{spend:"₹14.2 L",roas:4.2,cpa:980,convrate:2.4,ctr:"—",imprshare:62},children:[
+   {name:"Asset group · Bestsellers",tierColor:TC("good"),status:{label:"Good",tier:"good"},metrics:{spend:"₹8.0 L",roas:4.6,cpa:880,convrate:2.7,ctr:"—",imprshare:66},children:[
+     {name:"Image assets (8)",fmt:"PMax assets",tierColor:TC("good"),action:"on",why:"<b>Keep.</b> 6 of 8 rated Good or Best.",metrics:{spend:"—",roas:"—",cpa:"—",convrate:"—",ctr:"—",imprshare:"—"}}
+   ]},
+   {name:"Asset group · New arrivals",tierColor:TC("watch"),status:{label:"Average",tier:"watch"},metrics:{spend:"₹6.2 L",roas:3.7,cpa:1080,convrate:2.1,ctr:"—",imprshare:58},children:[
+     {name:"Image assets (6)",fmt:"PMax assets",tierColor:TC("bad"),action:"off",why:"<b>Replace.</b> 4 of 6 rated Low. Refresh with bestseller-style images.",metrics:{spend:"—",roas:"—",cpa:"—",convrate:"—",ctr:"—",imprshare:"—"}}
+   ]}
+ ]},
+ {name:"Shopping",tierColor:TC("good"),status:{label:"Healthy",tier:"good"},metrics:{spend:"₹4.8 L",roas:5.1,cpa:760,convrate:3.0,ctr:1.2,imprshare:52},children:[
+   {name:"All products",tierColor:TC("good"),status:{label:"Healthy",tier:"good"},metrics:{spend:"₹4.8 L",roas:5.1,cpa:760,convrate:3.0,ctr:1.2,imprshare:52},children:[
+     {name:"Co-ord sets (group)",fmt:"Product group",tierColor:TC("good"),action:"scale",why:"<b>Raise priority.</b> Best margin group, impression share has room.",metrics:{spend:"₹2.1 L",roas:6.0,cpa:640,convrate:3.6,ctr:1.4,imprshare:55}}
+   ]}
+ ]}
+];
+
+/* ===== creative module data ===== */
+const formats=[
+ {name:"UGC Video",win:true,roas:6.2,ctr:2.1,hook:34,cpa:720,share:38},
+ {name:"Catalogue / DPA",roas:7.8,ctr:1.5,hook:null,cpa:560,share:5,note:"Retargeting-weighted"},
+ {name:"Founder VSL",roas:5.1,ctr:1.6,hook:29,cpa:870,share:11},
+ {name:"Carousel",roas:4.9,ctr:1.7,hook:24,cpa:910,share:18},
+ {name:"Static",roas:3.8,ctr:1.2,hook:19,cpa:1080,share:28}
+];
+const topAssets=[
+ {th:"",ic:"▶",name:"UGC-Monsoon-03",fmt:"UGC Video",where:"Broad 18–45",roas:7.2,ctr:2.4,hook:38},
+ {th:"v2",ic:"❚❚",name:"Carousel-Reviews-01",fmt:"Carousel",where:"Cart abandoners",roas:14.2,ctr:2.7,hook:31},
+ {th:"v3",ic:"▶",name:"Founder-VSL-01",fmt:"Founder VSL",where:"Interest: Sustainable",roas:5.2,ctr:1.6,hook:29},
+ {th:"v4",ic:"❚❚",name:"UGC-Testimonial-02",fmt:"UGC Video",where:"Lookalike 3%",roas:5.8,ctr:1.7,hook:33}
+];
+const deploys=[
+ {title:"Put UGC-Monsoon-03 into two more adsets",body:"Returns 7.2× in Broad 18–45 but is not running in Lookalike 3% or Interest: Sustainable, where current creatives sit below target. Adding it is the fastest lift available.",tags:["→ Lookalike 3% Purchasers","→ Interest: Sustainable"]},
+ {title:"Expand Founder-VSL-01 across prospecting",body:"Your best cold-audience video at 5.2× and low frequency, yet it lives in a single adset. The other prospecting adsets are video-light.",tags:["→ Broad 18–45","→ Lookalike 3% Purchasers"]},
+ {title:"Refresh the winning angle into new statics",body:"UGC-Monsoon-03's hook is outperforming. Brief two static variants on the same angle to feed adsets where video load is high and frequency is climbing.",tags:["Brief: 2 statics","Angle: monsoon utility"]}
+];
+const fatigue=[
+ {name:"Static-Urgency-02",fmt:"Static",detail:"Frequency 4.1, CTR down 22% in 14 days. Retire now.",tier:"bad"},
+ {name:"Static-Sale-07",fmt:"Static",detail:"Frequency 2.3 and rising, CTR down 18%. Queue a replacement.",tier:"watch"}
+];
+
+/* ===== google asset module data ===== */
+const rsa=[
+ {t:"Best",label:'"Linen co-ords, made to layer"',type:"Headline",cls:"rate-best"},
+ {t:"Good",label:'"Free shipping over ₹1,499"',type:"Headline",cls:"rate-good"},
+ {t:"Low",label:'"Shop the new collection now"',type:"Description",cls:"rate-low"},
+ {t:"Low",label:'"Quality you can trust"',type:"Description",cls:"rate-low"},
+ {t:"Learning",label:'"Breathable fabrics for Indian summers"',type:"Headline",cls:"rate-learn"}
+];
+const pmax=[
+ {name:"Bestsellers",tier:"good",label:"Good",note:"6 of 8 image assets rated Good or Best. No action."},
+ {name:"New arrivals",tier:"bad",label:"Average",note:"4 of 6 images rated Low. Replace with bestseller-style lifestyle shots."}
+];
+const negs=[
+ {term:'"cheap kurta"',cost:"₹1.4 L",conv:"11",cvr:"0.4%",v:"negative"},
+ {term:'"how to style co-ords"',cost:"₹0.7 L",conv:"3",cvr:"0.5%",v:"negative"},
+ {term:'"looma reviews"',cost:"₹0.6 L",conv:"2",cvr:"0.6%",v:"exclude"},
+ {term:'"linen dress women"',cost:"₹1.1 L",conv:"42",cvr:"3.4%",v:"keep"}
+];
+const gDeploys=[
+ {title:"Replace 2 Low-rated RSA descriptions",body:"Both descriptions in the Summer Dresses RSA are dragging ad strength to Average. Swap in benefit-led copy to lift impression share.",tags:["Ad group: Summer dresses"]},
+ {title:"Add 3 negative keywords",body:"Harvested from the search-term report. ₹2.1 L of spend this period went to non-buying intent.",tags:['"cheap kurta"','"how to style"','"reviews"']},
+ {title:"Refresh PMax 'New arrivals' images",body:"Asset group rated Average with 4 Low images. Bestseller-style lifestyle shots are the proven pattern.",tags:["Asset group: New arrivals"]}
+];
+
+/* ===== mock series + charts ===== */
+const days=Array.from({length:30},(_,i)=>i);
+const revSeries=days.map(i=>62+18*Math.sin(i/4.5)+i*1.1+(i>22?14:0));
+const spendSeries=days.map(i=>26+6*Math.sin(i/4.2+1)+i*0.35+(i>22?5:0));
+function lineChart(el,a,b,cA,cB){const W=520,H=200,pl=10,pr=10,pt=14,pb=22,max=Math.max(...a.concat(b))*1.12;const x=i=>pl+(i/(a.length-1))*(W-pl-pr),y=v=>pt+(1-v/max)*(H-pt-pb);const p=s=>s.map((v,i)=>(i?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1)).join(" ");const ar=s=>p(s)+` L${x(s.length-1)} ${H-pb} L${x(0)} ${H-pb} Z`;let g="";for(let i=0;i<=3;i++){const yy=pt+i/3*(H-pt-pb);g+=`<line class="gl" x1="${pl}" y1="${yy}" x2="${W-pr}" y2="${yy}"/>`}el.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${g}<path d="${ar(a)}" fill="${cA}" opacity="0.08"/><path d="${p(a)}" fill="none" stroke="${cA}" stroke-width="2.4"/><path d="${p(b)}" fill="none" stroke="${cB}" stroke-width="2.4"/><text class="ax" x="${pl}" y="${H-6}">Day 1</text><text class="ax" x="${W-pr}" y="${H-6}" text-anchor="end">Day 30</text></svg>`}
+function stackedBars(el){const w=[[42,30],[48,33],[51,37],[58,41]],W=520,H=200,pb=24,pt=10,pl=10,pr=10,max=Math.max(...w.map(x=>x[0]+x[1]))*1.15,bw=(W-pl-pr)/w.length*0.5,gap=(W-pl-pr)/w.length,y=v=>pt+(1-v/max)*(H-pt-pb);let b="";w.forEach((x,i)=>{const cx=pl+gap*i+gap/2-bw/2,h1=(H-pt-pb)*(x[0]/max),h2=(H-pt-pb)*(x[1]/max);b+=`<rect x="${cx}" y="${y(x[0])}" width="${bw}" height="${h1}" fill="var(--green)" rx="3"/><rect x="${cx}" y="${y(x[0]+x[1])}" width="${bw}" height="${h2}" fill="#9DBBAD" rx="3"/><text class="ax" x="${cx+bw/2}" y="${H-7}" text-anchor="middle">W${i+1}</text>`});el.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${b}</svg>`}
+function inflationChart(el){const W=520,H=200,pl=10,pr=10,pt=14,pb=22,meta=days.map(i=>1.9+0.3*Math.sin(i/6)+i*0.012),goog=days.map(i=>1.5+0.2*Math.sin(i/5+1)+i*0.008),max=2.6,min=0.8,x=i=>pl+(i/29)*(W-pl-pr),y=v=>pt+(1-(v-min)/(max-min))*(H-pt-pb),p=s=>s.map((v,i)=>(i?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1)).join(" "),one=y(1.0);el.innerHTML=`<svg viewBox="0 0 ${W} ${H}"><line class="gl" x1="${pl}" y1="${one}" x2="${W-pr}" y2="${one}" stroke="var(--faint)" stroke-dasharray="4 4"/><text class="ax" x="${W-pr}" y="${one-5}" text-anchor="end" style="fill:var(--faint)">1.0× truth line</text><path d="${p(meta)}" fill="none" stroke="var(--src-meta)" stroke-width="2.4"/><path d="${p(goog)}" fill="none" stroke="var(--amber)" stroke-width="2.4"/><text class="ax" x="${pl}" y="${H-6}">Day 1</text><text class="ax" x="${W-pr}" y="${H-6}" text-anchor="end">Day 30</text></svg>`}
+
+/* ===== creative renderers ===== */
+function renderCreative(){
+  const maxR=Math.max(...formats.map(f=>f.roas));
+  document.getElementById("fmtPerf").innerHTML=formats.map(f=>`
+    <div class="fmt-row">
+      <div class="fmt-name">${f.name}${f.win?'<span class="badge">Winner</span>':''}</div>
+      <div class="fmt-bar"><i style="width:${(f.roas/maxR*100).toFixed(0)}%;background:${f.win?'var(--green-2)':'var(--green)'}"></i></div>
+      <div class="fmt-metrics">
+        <div class="mm">ROAS<b>${f.roas.toFixed(1)}×</b></div>
+        <div class="mm">CTR<b>${f.ctr.toFixed(1)}%</b></div>
+        <div class="mm">Hook<b>${f.hook!=null?f.hook+"%":"—"}</b></div>
+        <div class="mm">CPA<b>${inr(f.cpa)}</b></div>
+        <div class="mm">Spend<b>${f.share}%</b></div>
+      </div>
+    </div>`).join("");
+  document.getElementById("topAssets").innerHTML=topAssets.map((a,i)=>`
+    <div class="asset">
+      <div class="thumb">${thumbFrame(a.fmt,i)}</div>
+      <div class="ainfo"><h5>${a.name}</h5><div class="where">${a.fmt} · running in <b>${a.where}</b></div></div>
+      <div class="ametrics"><div class="mm">ROAS<b>${a.roas.toFixed(1)}×</b></div><div class="mm">CTR<b>${a.ctr.toFixed(1)}%</b></div><div class="mm">Hook<b>${a.hook}%</b></div></div>
+    </div>`).join("");
+  document.getElementById("deployList").innerHTML=deploys.map(d=>`
+    <div class="deploy">
+      <div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+      <div class="di"><b>${d.title}</b><p>${d.body}</p><div class="tags">${d.tags.map(t=>`<span class="tg">${t}</span>`).join("")}</div></div>
+      <div class="act"><button class="btn-solid">Deploy</button></div>
+    </div>`).join("");
+  document.getElementById("fatigueList").innerHTML=fatigue.map(f=>`
+    <div class="alert ${f.tier==='bad'?'down':'warn'}"><div class="bar"></div><div class="txt"><b>${f.name} <span style="font-weight:500;color:var(--faint)">· ${f.fmt}</span></b><p>${f.detail}</p></div><span class="tag">${f.tier==='bad'?'Retire':'Watch'}</span></div>`).join("");
+}
+function renderGoogleAssets(){
+  document.getElementById("rsaAssets").innerHTML=rsa.map(r=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-2)">
+      <span class="ratepill ${r.cls}">${r.t}</span>
+      <div style="flex:1"><div style="font-size:13px;font-weight:500">${r.label}</div><div style="font-size:11px;color:var(--faint)">${r.type}</div></div>
+    </div>`).join("");
+  document.getElementById("pmaxGroups").innerHTML=pmax.map(p=>`
+    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-2)">
+      <span class="ratepill ${p.tier==='good'?'rate-best':'rate-learn'}">${p.label}</span>
+      <div style="flex:1"><div style="font-size:13px;font-weight:600">${p.name}</div><div style="font-size:12px;color:var(--muted);margin-top:2px">${p.note}</div></div>
+    </div>`).join("");
+  document.getElementById("negTable").innerHTML=`
+    <thead><tr><th>Search term</th><th class="num">Cost</th><th class="num">Conv.</th><th class="num">CVR</th><th class="num">Verdict</th></tr></thead>
+    <tbody>${negs.map(n=>`<tr><td class="name">${n.term}</td><td class="num">${n.cost}</td><td class="num">${n.conv}</td><td class="num">${n.cvr}</td><td class="num"><span class="pill ${n.v==='keep'?'ok':n.v==='exclude'?'mid':'bad'}">${n.v==='negative'?'Add negative':n.v==='exclude'?'Exclude':'Keep'}</span></td></tr>`).join("")}</tbody>`;
+  document.getElementById("googleDeploy").innerHTML=gDeploys.map(d=>`
+    <div class="deploy"><div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div><div class="di"><b>${d.title}</b><p>${d.body}</p><div class="tags">${d.tags.map(t=>`<span class="tg">${t}</span>`).join("")}</div></div><div class="act"><button class="btn-solid">Apply</button></div></div>`).join("");
+}
+
+/* ===== alerts + recs ===== */
+const alerts=[
+ {k:"warn",tag:"Tracking",t:"Meta CAPI match quality fell to 43%",p:"Down from 67% a week ago. Attribution and optimisation both degrade below 60%. A fix is queued in Recommendations."},
+ {k:"down",tag:"Anomaly",t:"Google PMax ROAS down 28% vs 14-day baseline",p:"Isolated to the New Arrivals asset group. Spend held steady, so this is a creative or feed issue, not budget."},
+ {k:"up",tag:"Retention",t:"Returning-customer revenue up 19%",p:"Repeat cohort is compounding faster than acquisition."}
+];
+const recs=[
+ {rank:1,cat:"Scale",title:"Increase Meta ASC budget by 15%",ev:"Marginal ROAS on ASC is 2.1×, above the 1.6× contribution breakeven, and the response curve shows room before saturation.",impact:"+₹18–22 L / mo",conf:"High",effort:"Low",metric:"mMarginal"},
+ {rank:2,cat:"Leakage",title:"Fix the /collections/monsoon-sale landing page",ev:"It takes 9.1% of paid sessions but converts at 0.7% against a 2.3% site average. Paid traffic is routed to a page that cannot close.",impact:"Recover ~₹6 L / mo",conf:"Medium",effort:"Medium",metric:"mAttr"},
+ {rank:3,cat:"Reallocation",title:"Shift ₹8 L from Google brand to non-brand Search",ev:"Branded search is saturated and largely cannibalising organic. The same budget on non-brand is net new demand.",impact:"+₹4–5 L net new / mo",conf:"Medium",effort:"Low",metric:"gRoas"},
+ {rank:4,cat:"Tracking",title:"Recover Meta CAPI match quality",ev:"Event match quality is 4.3/10. Sending hashed identifiers server-side should lift it past 7 and recover ~12% of attributed conversions.",impact:"~12% more attributed conv.",conf:"High",effort:"Medium",metric:"mer"},
+ {rank:5,cat:"Geo test",title:"Test a 30% scale into Tier-2 cities",ev:"Tier-2 metros return 3.4× MER on 22% of spend. The pocket is under-funded relative to its efficiency.",impact:"+₹7–9 L / mo",conf:"Medium",effort:"Medium",metric:"mer"}
+];
+function confDot(c){const col=c==="High"?"var(--up)":c==="Medium"?"var(--amber)":"var(--down)";return `<span class="conf"><span class="d" style="background:${col}"></span>${c}</span>`}
+
+/* ===== cross-channel insights ===== */
+function tcell(text,tier){return tier?`<span class="cellwrap tier-${tier}"><span class="dot"></span>${text}</span>`:text}
+function lens(l){return l==="gap"?'<span class="lenschip lens-gap">Gap</span>':'<span class="lenschip lens-pattern">Pattern</span>'}
+function insightCard(o){
+  return `<div class="deploy">
+    <div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="4"/></svg></div>
+    <div class="di"><b>${o.title}</b>${lens(o.lens)}<p>${o.body}</p>${o.tags?`<div class="tags">${o.tags.map(t=>`<span class="tg">${t}</span>`).join("")}</div>`:""}</div>
+    <div class="act"><button class="btn-solid">${o.cta||"Action"}</button></div>
+  </div>`;
+}
+function renderInsights(){
+  // Geography
+  document.getElementById("geoTable").innerHTML=`
+    <thead><tr><th>State</th><th class="num">Revenue</th><th class="num">MER</th><th class="num">CVR</th><th class="num">Ad spend share</th><th class="num">Read</th></tr></thead>
+    <tbody class="imx">
+    <tr><td class="name">Maharashtra</td><td class="num">₹64 L</td><td class="num">${tcell("3.4×","good")}</td><td class="num">${tcell("2.8%","good")}</td><td class="num">31%</td><td class="num"><span class="pill ok">Hold</span></td></tr>
+    <tr><td class="name">Karnataka</td><td class="num">₹41 L</td><td class="num">${tcell("3.9×","good")}</td><td class="num">${tcell("3.1%","good")}</td><td class="num">14%</td><td class="num"><span class="pill ok">Scale</span></td></tr>
+    <tr><td class="name">Delhi NCR</td><td class="num">₹38 L</td><td class="num">${tcell("2.1×","watch")}</td><td class="num">${tcell("1.9%","watch")}</td><td class="num">22%</td><td class="num"><span class="pill mid">Watch</span></td></tr>
+    <tr><td class="name">West Bengal</td><td class="num">₹9 L</td><td class="num">${tcell("1.3×","bad")}</td><td class="num">${tcell("1.1%","bad")}</td><td class="num">12%</td><td class="num"><span class="pill bad">Cut</span></td></tr>
+    <tr><td class="name">Gujarat (Tier-2)</td><td class="num">₹17 L</td><td class="num">${tcell("4.6×","good")}</td><td class="num">${tcell("3.3%","good")}</td><td class="num">6%</td><td class="num"><span class="pill ok">Scale</span></td></tr>
+    </tbody>`;
+  document.getElementById("geoCards").innerHTML=[
+    insightCard({lens:"pattern",title:"Karnataka is under-served",body:"GA4 sessions and Shopify orders are strong there, but it takes only 14% of ad spend at a 3.9× MER. Demand is running ahead of investment.",tags:["+ Geo campaign: Karnataka","Raise bids 20%"],cta:"Scale"}),
+    insightCard({lens:"gap",title:"West Bengal is burning budget",body:"12% of spend at a 1.3× MER, below breakeven, with a 1.1% CVR against a 2.3% national average. The region is not converting the traffic it is being sold.",tags:["Reduce bids","Exclude worst pincodes"],cta:"Cut"}),
+    insightCard({lens:"pattern",title:"Gujarat Tier-2 pocket, 4.6× MER on 6% of spend",body:"Cheaper CPMs and a higher conversion rate than the metros. A contained scale test is the low-risk next move.",tags:["Test: +30% into Gujarat"],cta:"Test scale"}),
+    insightCard({lens:"pattern",title:"Product affinity: co-ord sets over-index in the South",body:"Co-ord sets are 41% of Karnataka and Tamil Nadu revenue versus 26% nationally. A geo-targeted catalogue leading with co-ords should lift regional ROAS.",tags:["Geo catalogue: South → co-ords"],cta:"Build"})
+  ].join("");
+
+  // Products & CRO
+  document.getElementById("prodTable").innerHTML=`
+    <thead><tr><th>Product</th><th class="num">Sessions (30d)</th><th class="num">CVR</th><th class="num">Site avg</th><th class="num">Contribution</th><th class="num">Read</th></tr></thead>
+    <tbody class="imx">
+    <tr><td class="name">Monsoon Linen Kurta</td><td class="num">18,400</td><td class="num">${tcell("0.7%","bad")}</td><td class="num">2.3%</td><td class="num">${tcell("28%","watch")}</td><td class="num"><span class="pill bad">Fix leak</span></td></tr>
+    <tr><td class="name">Cotton Co-ord Set</td><td class="num">4,100</td><td class="num">${tcell("4.9%","good")}</td><td class="num">2.3%</td><td class="num">${tcell("34%","good")}</td><td class="num"><span class="pill ok">Scale traffic</span></td></tr>
+    <tr><td class="name">Silk Anarkali</td><td class="num">2,600</td><td class="num">${tcell("3.8%","good")}</td><td class="num">2.3%</td><td class="num">${tcell("41%","good")}</td><td class="num"><span class="pill mid">Low stock</span></td></tr>
+    <tr><td class="name">Everyday Tee</td><td class="num">9,800</td><td class="num">${tcell("2.1%","watch")}</td><td class="num">2.3%</td><td class="num">${tcell("12%","bad")}</td><td class="num"><span class="pill mid">Low margin</span></td></tr>
+    </tbody>`;
+  document.getElementById("prodCards").innerHTML=[
+    insightCard({lens:"gap",title:"Monsoon Linen Kurta: high traffic, dead conversion",body:"The most-visited product on the store (18.4k sessions) converts at 0.7% against a 2.3% average. Diagnosis points to a slow PDP and out-of-stock top variants. It is currently the destination of ₹4.8 L of paid traffic.",tags:["Fix PDP + restock M/L","Pause ads until fixed"],cta:"Fix leak"}),
+    insightCard({lens:"pattern",title:"Cotton Co-ord Set is a hidden winner",body:"Converts at 4.9% with 34% contribution but gets only 4.1k sessions and almost no ad presence. It is proven to sell; it just is not being shown to enough people.",tags:["Add to prospecting","Feature on collections"],cta:"Scale traffic"}),
+    insightCard({lens:"gap",title:"Throttle Silk Anarkali before it stocks out",body:"A 3.8% CVR and 41% contribution, but only 9 days of stock at current velocity. Scaling ads now wastes spend on soon-to-be-unavailable inventory.",tags:["Cap ad spend","Reorder now"],cta:"Throttle"})
+  ].join("");
+
+  // Customer lifecycle
+  document.getElementById("acqTable").innerHTML=`
+    <thead><tr><th>Channel</th><th class="num">nCAC</th><th class="num">New buyers</th><th class="num">Read</th></tr></thead>
+    <tbody class="imx">
+    <tr><td class="name">Meta prospecting</td><td class="num">${tcell("₹980","good")}</td><td class="num">4,120</td><td class="num"><span class="pill ok">Fund</span></td></tr>
+    <tr><td class="name">Google non-brand</td><td class="num">${tcell("₹1,240","watch")}</td><td class="num">1,860</td><td class="num"><span class="pill mid">Hold</span></td></tr>
+    <tr><td class="name">Organic / SEO</td><td class="num">${tcell("₹210","good")}</td><td class="num">2,540</td><td class="num"><span class="pill ok">Invest</span></td></tr>
+    </tbody>`;
+  document.getElementById("retTable").innerHTML=`
+    <thead><tr><th>Channel</th><th class="num">Repeat orders</th><th class="num">Repeat rate</th><th class="num">Read</th></tr></thead>
+    <tbody class="imx">
+    <tr><td class="name">Email / Klaviyo</td><td class="num">2,970</td><td class="num">${tcell("38%","good")}</td><td class="num"><span class="pill ok">Fund</span></td></tr>
+    <tr><td class="name">Meta retargeting</td><td class="num">1,410</td><td class="num">${tcell("19%","watch")}</td><td class="num"><span class="pill mid">Hold</span></td></tr>
+    <tr><td class="name">Brand search</td><td class="num">640</td><td class="num">${tcell("31%","good")}</td><td class="num"><span class="pill ok">Hold</span></td></tr>
+    </tbody>`;
+  document.getElementById("lifeCards").innerHTML=[
+    insightCard({lens:"pattern",title:"Meta acquires new buyers cheaply; email keeps them",body:"Meta prospecting is the efficient front door for first-time buyers at ₹980. Repeat business is won by email, not by paid. The split tells you where each rupee belongs: paid for acquisition, email for retention.",tags:["Prospecting → Meta","Retention → email flows"],cta:"Rebalance"}),
+    insightCard({lens:"pattern",title:"Gateway product: Cotton Co-ord Set drives loyalty",body:"Customers whose first purchase is the co-ord set repeat at 47% and carry a ₹6,800 LTV, well above the ₹4,900 average. Leading acquisition with it acquires better customers, not just cheaper ones.",tags:["Feature in prospecting","First-order offer"],cta:"Prioritise"}),
+    insightCard({lens:"gap",title:"Google non-brand is buying discounted first orders",body:"62% of its new orders use a code, dragging first-order contribution below breakeven. The channel looks fine on ROAS but is unprofitable on acquisition.",tags:["Cap discount exposure","Reassess bids"],cta:"Review"})
+  ].join("");
+
+  // Catalogue & replication
+  document.getElementById("catCards").innerHTML=[
+    insightCard({lens:"pattern",title:"Winning recipe: Co-ord product set × Lookalike 3% × South",body:"The co-ord set inside the catalogue ad, shown to the 3% purchaser lookalike in southern states, is returning 5.8× at scale. This is a repeatable combination, not a fluke.",tags:["Set: Co-ords","Audience: LAL 3%","Geo: South"],cta:"Replicate"}),
+    insightCard({lens:"pattern",title:"Clone the winning adset to adjacent audiences",body:"Build a lookalike from the winning set's purchasers and clone the adset structure to interest and broad audiences that currently run weaker creatives.",tags:["→ New LAL from purchasers","→ Broad 18–45","→ Interest: ethnic wear"],cta:"Clone"}),
+    insightCard({lens:"pattern",title:"Mirror the set into Google Shopping and PMax",body:"The same co-ord products are among the top Shopping converters. Raise their PMax listing-group priority so both channels push the proven winners in step.",tags:["PMax: raise co-ord priority","Align budgets"],cta:"Mirror"}),
+    insightCard({lens:"gap",title:"New Arrivals set is dragging its campaign",body:"The New Arrivals product set returns 1.7× inside an otherwise healthy campaign, pulling the average down. Split it out or pause it so it stops masking the winners.",tags:["Isolate set","Pause low performers"],cta:"Split"})
+  ].join("");
+}
+
+/* ===== creative thumbnails (represent real Meta creative_id assets) ===== */
+function thumbFrame(fmt,i){
+  const pal=[["#3A6B57","#DDE7E0","#F2C879"],["#8A5A2B","#F0E2D0","#D98A4E"],["#2D5B8A","#DCE7F0","#8FB4D8"],["#6E4E8A","#E6DCF0","#B79AD8"]][i%4];
+  const video=/video|vsl/i.test(fmt);
+  const tag=video?"VIDEO":"IMAGE";
+  const play=video?`<circle cx="62" cy="86" r="16" fill="rgba(255,255,255,.92)"/><path d="M57 78 l13 8 -13 8 Z" fill="${pal[0]}"/><rect x="88" y="146" width="28" height="12" rx="3" fill="rgba(0,0,0,.5)"/><text x="102" y="155" font-size="8" fill="#fff" text-anchor="middle" font-family="sans-serif">0:15</text>`:"";
+  return `<svg viewBox="0 0 124 164" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="tg${i}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pal[1]}"/><stop offset="1" stop-color="${pal[2]}"/></linearGradient></defs>
+    <rect width="124" height="164" fill="url(#tg${i})"/>
+    <circle cx="62" cy="60" r="19" fill="${pal[0]}" opacity="0.92"/>
+    <rect x="41" y="76" width="42" height="50" rx="11" fill="${pal[0]}" opacity="0.92"/>
+    <text x="8" y="16" font-size="9" font-weight="700" fill="${pal[0]}" font-family="sans-serif" letter-spacing="1">LOOMA</text>
+    <rect x="85" y="7" width="31" height="12" rx="3" fill="rgba(0,0,0,.32)"/><text x="100" y="16" font-size="7" fill="#fff" text-anchor="middle" font-family="sans-serif">${tag}</text>
+    <rect x="0" y="132" width="124" height="32" fill="rgba(0,0,0,.34)"/>
+    <text x="8" y="152" font-size="9" fill="#fff" font-family="sans-serif" font-weight="600">Monsoon Edit</text>
+    ${play}
+  </svg>`;
+}
+
+/* ===== table sort / filter / export ===== */
+function parseVal(s){const n=parseFloat(String(s).replace(/[,₹×%\s]/g,"").replace(/(L|Cr)/gi,""));return isNaN(n)?String(s).toLowerCase():n;}
+function sortTable(t,idx,th){
+  const tb=t.querySelector("tbody");const rows=[...tb.querySelectorAll("tr")];
+  const dir=th.dataset.dir==="asc"?"desc":"asc";
+  t.querySelectorAll("thead th").forEach(x=>{x.dataset.dir="";x.classList.remove("sort-asc","sort-desc")});
+  th.dataset.dir=dir;th.classList.add(dir==="asc"?"sort-asc":"sort-desc");
+  rows.sort((a,b)=>{const av=parseVal(a.children[idx].innerText),bv=parseVal(b.children[idx].innerText);
+    if(typeof av==="number"&&typeof bv==="number")return dir==="asc"?av-bv:bv-av;
+    return dir==="asc"?String(av).localeCompare(bv):String(bv).localeCompare(av);});
+  rows.forEach(r=>tb.appendChild(r));
+}
+function enhanceTable(id){const t=document.getElementById(id);if(!t)return;
+  t.querySelectorAll("thead th").forEach((th,idx)=>{th.dataset.dir="";th.addEventListener("click",()=>sortTable(t,idx,th));});}
+function filterTable(id,q){const t=document.getElementById(id);if(!t)return;q=q.toLowerCase();
+  t.querySelectorAll("tbody tr").forEach(r=>{r.style.display=r.innerText.toLowerCase().includes(q)?"":"none";});}
+function exportCSV(id,name){const t=document.getElementById(id);if(!t)return;
+  const rows=[...t.querySelectorAll("tr")].filter(r=>r.style.display!=="none");
+  const csv=rows.map(r=>[...r.children].map(c=>'"'+c.innerText.replace(/"/g,'""').replace(/\s+/g," ").trim()+'"').join(",")).join("\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=(name||"export")+".csv";a.click();URL.revokeObjectURL(a.href);}
+function equipTable(id,name){const t=document.getElementById(id);if(!t||t.dataset.equipped)return;t.dataset.equipped="1";
+  const bar=document.createElement("div");bar.className="tbar";
+  bar.innerHTML=`<div class="tfilterwrap"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input class="tfilter" data-t="${id}" placeholder="Filter"></div><span class="thint">Click a column to sort</span><button class="texport" data-t="${id}" data-name="${name}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M8 11l4 4 4-4M4 21h16"/></svg>Export CSV</button>`;
+  t.parentNode.insertBefore(bar,t);enhanceTable(id);}
+
+/* ===== creative report export (self-contained HTML for the creatives team) ===== */
+function exportCreativeReport(){
+  const css="body{font-family:Arial,Helvetica,sans-serif;color:#1A1813;max-width:840px;margin:26px auto;padding:0 18px}h1{color:#1B3A2E;margin-bottom:2px}h2{color:#1B3A2E;border-bottom:2px solid #1B3A2E;padding-bottom:5px;margin-top:30px;font-size:17px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#1B3A2E;color:#fff;text-align:left;padding:8px 10px}td{padding:8px 10px;border-bottom:1px solid #e4e0d6}.assets{display:grid;grid-template-columns:1fr 1fr;gap:14px}.a{display:flex;gap:12px;border:1px solid #e4e0d6;border-radius:9px;padding:11px}.a .t{width:70px;height:92px;flex-shrink:0;border-radius:6px;overflow:hidden;border:1px solid #e4e0d6}.a .t svg{width:100%;height:100%;display:block}.rec{background:#f2f7f4;border:1px solid #cfe3d8;border-radius:9px;padding:12px;margin-bottom:10px;font-size:13px}.rec b{color:#1B3A2E}.tg{display:inline-block;font-size:11px;font-weight:600;background:#fff;border:1px solid #cfe3d8;color:#1B3A2E;padding:2px 8px;border-radius:20px;margin:5px 5px 0 0}";
+  const fmtRows=formats.map(f=>`<tr><td>${f.name}${f.win?" &#9733;":""}</td><td>${f.roas.toFixed(1)}&#215;</td><td>${f.ctr.toFixed(1)}%</td><td>${f.hook!=null?f.hook+"%":"&#8212;"}</td><td>&#8377;${f.cpa}</td><td>${f.share}%</td></tr>`).join("");
+  const assetCards=topAssets.map((a,i)=>`<div class="a"><div class="t">${thumbFrame(a.fmt,i)}</div><div><b>${a.name}</b><br><span style="color:#6f6e66;font-size:12px">${a.fmt} &middot; in ${a.where}</span><br><span style="font-size:12px">ROAS ${a.roas.toFixed(1)}&#215; &middot; CTR ${a.ctr.toFixed(1)}% &middot; Hook ${a.hook}%</span></div></div>`).join("");
+  const dep=deploys.map(d=>`<div class="rec"><b>${d.title}</b><br>${d.body}<div>${d.tags.map(t=>`<span class="tg">${t}</span>`).join("")}</div></div>`).join("");
+  const fat=fatigue.map(f=>`<div class="rec" style="background:#fbeeeb;border-color:#e6c4bd"><b>${f.name}</b> (${f.fmt}) &#8212; ${f.detail}</div>`).join("");
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Looma Creative Report</title><style>${css}</style></head><body><h1>Creative performance report</h1><p style="color:#6f6e66;margin-top:0">Brand: Looma &middot; Last 30 days &middot; Generated from Marktech</p><h2>Performance by format</h2><table><thead><tr><th>Format</th><th>ROAS</th><th>CTR</th><th>Hook</th><th>CPA</th><th>Spend share</th></tr></thead><tbody>${fmtRows}</tbody></table><h2>Top assets</h2><div class="assets">${assetCards}</div><h2>Deploy these winners into these adsets</h2>${dep}<h2>Fatigue: retire or refresh</h2>${fat}</body></html>`;
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([html],{type:"text/html"}));a.download="Looma_creative_report.html";a.click();URL.revokeObjectURL(a.href);
+}
+
+/* delegated events for filter, csv export, creative export */
+document.body.addEventListener("input",e=>{const f=e.target.closest(".tfilter");if(f)filterTable(f.dataset.t,f.value);});
+document.body.addEventListener("click",e=>{
+  const x=e.target.closest(".texport");if(x){exportCSV(x.dataset.t,x.dataset.name);return;}
+  const cr=e.target.closest(".creative-export");if(cr){exportCreativeReport();return;}
+});
+
+/* ===== render ===== */
+function render(){
+  document.getElementById("ovKpis").innerHTML=tile("mer",{cls:"span2"})+tile("rev",{cls:"span2"})+tile("cm",{cls:"span2"})+tile("spend",{cls:"span2"})+tile("ncac",{cls:"span2"})+tile("payback",{cls:"span2"});
+  document.getElementById("ovAlerts").innerHTML=alerts.map(a=>`<div class="alert ${a.k}"><div class="bar"></div><div class="txt"><b>${a.t}</b><p>${a.p}</p></div><span class="tag">${a.tag}</span></div>`).join("");
+  lineChart(document.getElementById("chRevSpend"),revSeries,spendSeries,"var(--green)","var(--amber)");
+  stackedBars(document.getElementById("chCohort"));
+
+  document.getElementById("metaKpis").innerHTML=tile("mSpend",{cls:"span2"})+tile("mRoas",{cls:"span2"})+tile("mAttr",{cls:"span2"});
+  renderTree("metaTree",metaTree,metaThr,metaCols,"Campaign · Adset · Ad");
+  renderCreative();
+
+  document.getElementById("googleKpis").innerHTML=tile("gSpend",{cls:"span2"})+tile("gRoas",{cls:"span2"})+tile("gAttr",{cls:"span2"});
+  renderTree("googleTree",googleTree,gThr,gCols,"Campaign · Group · Keyword / Ad");
+  renderGoogleAssets();
+
+  renderInsights();
+  ["geoTable","prodTable","acqTable","retTable","metaTable","negTable"].forEach(id=>equipTable(id,"Looma_"+id.replace("Table","")));
+
+  document.getElementById("reconKpis").innerHTML=tile("rClaim")+tile("rTruth")+tile("rBlended");
+  inflationChart(document.getElementById("chInflation"));
+
+  document.getElementById("recsList").innerHTML=recs.map(r=>`
+    <div class="rec"><div class="rec-top"><div class="rec-rank">${r.rank}</div><div class="rec-body"><div style="display:flex;align-items:center;gap:9px;margin-bottom:5px"><h4>${r.title}</h4><span class="tag-cat">${r.cat}</span></div><p class="ev">${r.ev}</p></div></div>
+    <div class="rec-meta"><div class="m"><span class="k">Expected impact</span><span class="v pos">${r.impact}</span></div><div class="m"><span class="k">Confidence</span><span class="v">${confDot(r.conf)}</span></div><div class="m"><span class="k">Effort</span><span class="v">${r.effort}</span></div><div class="act"><button class="btn-line" data-metric="${r.metric}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>View evidence</button><button class="btn-solid">Assign to growth team</button></div></div></div>`).join("");
+}
+
+/* ===== nav + tabs + interactions ===== */
+document.getElementById("nav").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;document.querySelectorAll("#nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));document.getElementById("screen-"+b.dataset.screen).classList.add("active");document.querySelector(".content").scrollIntoView({block:"start"})});
+document.querySelectorAll(".subtabs").forEach(g=>g.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;g.querySelectorAll("button").forEach(x=>x.classList.remove("active"));b.classList.add("active");const scope=b.closest(".screen");scope.querySelectorAll(".subpane").forEach(p=>p.classList.remove("active"));document.getElementById("pane-"+b.dataset.pane).classList.add("active")}));
+
+const lt=document.getElementById("lineageToggle");
+function setLineage(on){lt.classList.toggle("on",on);document.body.classList.toggle("lineage",on);lt.setAttribute("aria-checked",on)}
+lt.addEventListener("click",()=>setLineage(!lt.classList.contains("on")));
+lt.addEventListener("keydown",e=>{if(e.key===" "||e.key==="Enter"){e.preventDefault();setLineage(!lt.classList.contains("on"))}});
+
+const drawer=document.getElementById("drawer"),overlay=document.getElementById("overlay");
+function openDrawer(id){const m=M[id];if(!m)return;document.getElementById("dMetric").textContent=m.label;document.getElementById("dValue").textContent=m.value+(m.sub?" ("+m.sub+")":"");document.getElementById("dDef").textContent=m.def;document.getElementById("dFormula").textContent=m.formula;document.getElementById("dSources").innerHTML=m.srcs.map(k=>{const s=SRC[k];return `<div class="src-row"><span class="pip" style="background:${s.color}"></span><div><div class="sn">${s.name}</div><div class="sd">${s.desc}</div></div><div class="obj">${s.api}</div></div>`}).join("");document.getElementById("dPipe").innerHTML=`<div class="meta-row"><span>Refresh cadence</span><span>${m.cadence||"Daily"}</span></div><div class="meta-row"><span>Grain</span><span>${m.grain||"Account / day"}</span></div><div class="meta-row"><span>Layer</span><span>Semantic metrics layer</span></div>`;const cw=document.getElementById("dCaveatWrap");if(m.caveat){cw.style.display="block";document.getElementById("dCaveat").textContent=m.caveat}else cw.style.display="none";drawer.classList.add("show");overlay.classList.add("show");drawer.setAttribute("aria-hidden","false")}
+function closeDrawer(){drawer.classList.remove("show");overlay.classList.remove("show");drawer.setAttribute("aria-hidden","true")}
+document.getElementById("drawerClose").addEventListener("click",closeDrawer);
+overlay.addEventListener("click",closeDrawer);
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeDrawer()});
+
+/* delegated clicks: tree expand, action buttons, lineage */
+document.body.addEventListener("click",e=>{
+  const ab=e.target.closest(".abtn");
+  if(ab){const grp=ab.closest(".acts");if(grp){grp.innerHTML='<span style="font-size:11px;font-weight:600;color:var(--up)">✓ Queued for team</span>'}return;}
+  const tn=e.target.closest(".tw-name[data-target]");
+  if(tn){const k=document.getElementById(tn.dataset.target);if(k){k.classList.toggle("open");tn.classList.toggle("open")}return;}
+  const mt=e.target.closest("[data-metric]");
+  if(mt&&!mt.closest("#nav")){openDrawer(mt.dataset.metric)}
+});
+
+render();
+</script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { getPool } from '../lib/db'
 
-const GOOGLE_API_VERSION = 'v21'
+const GOOGLE_API_VERSION = 'v25'
 const GOOGLE_ADS_BASE = `https://googleads.googleapis.com/${GOOGLE_API_VERSION}`
 const GOOGLE_OAUTH_BASE = 'https://accounts.google.com/o/oauth2/v2/auth'
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
@@ -227,10 +227,27 @@ function gaqlDateFilter(dateRange: string): string {
   return `BETWEEN '${fmt(since)}' AND '${fmt(until)}'`
 }
 
+function windowToGaqlFilter(window: { since: string; until: string }): string {
+  return `BETWEEN '${window.since}' AND '${window.until}'`
+}
+
 export async function getGoogleCampaigns(
   customerId: string, accessToken: string, dateRange = '30D', managerId?: string
 ): Promise<any[]> {
-  const dateFilter = gaqlDateFilter(dateRange)
+  return getGoogleCampaignsForFilter(customerId, accessToken, gaqlDateFilter(dateRange), managerId)
+}
+
+// Same as getGoogleCampaigns but for an explicit {since, until} window — used
+// to fetch a "previous period" for trend comparisons.
+export async function getGoogleCampaignsForWindow(
+  customerId: string, accessToken: string, window: { since: string; until: string }, managerId?: string
+): Promise<any[]> {
+  return getGoogleCampaignsForFilter(customerId, accessToken, windowToGaqlFilter(window), managerId)
+}
+
+async function getGoogleCampaignsForFilter(
+  customerId: string, accessToken: string, dateFilter: string, managerId?: string
+): Promise<any[]> {
   const query = `
     SELECT
       campaign.id,
@@ -256,7 +273,18 @@ export async function getGoogleCampaigns(
 export async function getGoogleAdGroups(
   customerId: string, campaignId: string, accessToken: string, dateRange = '30D', managerId?: string
 ): Promise<any[]> {
-  const dateFilter = gaqlDateFilter(dateRange)
+  return getGoogleAdGroupsForFilter(customerId, campaignId, accessToken, gaqlDateFilter(dateRange), managerId)
+}
+
+export async function getGoogleAdGroupsForWindow(
+  customerId: string, campaignId: string, accessToken: string, window: { since: string; until: string }, managerId?: string
+): Promise<any[]> {
+  return getGoogleAdGroupsForFilter(customerId, campaignId, accessToken, windowToGaqlFilter(window), managerId)
+}
+
+async function getGoogleAdGroupsForFilter(
+  customerId: string, campaignId: string, accessToken: string, dateFilter: string, managerId?: string
+): Promise<any[]> {
   const query = `
     SELECT
       ad_group.id,
@@ -281,7 +309,18 @@ export async function getGoogleAdGroups(
 export async function getGoogleAds(
   customerId: string, adGroupId: string, accessToken: string, dateRange = '30D', managerId?: string
 ): Promise<any[]> {
-  const dateFilter = gaqlDateFilter(dateRange)
+  return getGoogleAdsForFilter(customerId, adGroupId, accessToken, gaqlDateFilter(dateRange), managerId)
+}
+
+export async function getGoogleAdsForWindow(
+  customerId: string, adGroupId: string, accessToken: string, window: { since: string; until: string }, managerId?: string
+): Promise<any[]> {
+  return getGoogleAdsForFilter(customerId, adGroupId, accessToken, windowToGaqlFilter(window), managerId)
+}
+
+async function getGoogleAdsForFilter(
+  customerId: string, adGroupId: string, accessToken: string, dateFilter: string, managerId?: string
+): Promise<any[]> {
   const query = `
     SELECT
       ad_group_ad.ad.id,
@@ -306,7 +345,22 @@ export async function getGoogleAds(
 export async function getGoogleAccountInsights(
   customerId: string, accessToken: string, dateRange = '30D', managerId?: string
 ): Promise<any> {
-  const dateFilter = gaqlDateFilter(dateRange)
+  return getGoogleAccountInsightsForFilter(customerId, accessToken, gaqlDateFilter(dateRange), managerId)
+}
+
+// Same as getGoogleAccountInsights but for an explicit {since, until} window —
+// used for a "previous period" that the relative dateRange presets can't express.
+export async function getGoogleAccountInsightsForWindow(
+  customerId: string, accessToken: string, window: { since: string; until: string }, managerId?: string
+): Promise<any> {
+  return getGoogleAccountInsightsForFilter(
+    customerId, accessToken, `BETWEEN '${window.since}' AND '${window.until}'`, managerId
+  )
+}
+
+async function getGoogleAccountInsightsForFilter(
+  customerId: string, accessToken: string, dateFilter: string, managerId?: string
+): Promise<any> {
   const query = `
     SELECT
       metrics.cost_micros,
@@ -337,7 +391,22 @@ export async function getGoogleAccountInsights(
 export async function getGoogleDailyInsights(
   customerId: string, accessToken: string, dateRange = '30D', managerId?: string
 ): Promise<any[]> {
-  const dateFilter = gaqlDateFilter(dateRange)
+  return getGoogleDailyInsightsForFilter(customerId, accessToken, gaqlDateFilter(dateRange), managerId)
+}
+
+// Same as getGoogleDailyInsights but for an explicit {since, until} window —
+// used by the reconciliation trend so it shares exact day boundaries with
+// computeOverviewMetrics (Google's DURING LAST_N_DAYS keyword uses its own
+// "complete days" semantics, which drift slightly from our since/until math).
+export async function getGoogleDailyInsightsForWindow(
+  customerId: string, accessToken: string, window: { since: string; until: string }, managerId?: string
+): Promise<any[]> {
+  return getGoogleDailyInsightsForFilter(customerId, accessToken, windowToGaqlFilter(window), managerId)
+}
+
+async function getGoogleDailyInsightsForFilter(
+  customerId: string, accessToken: string, dateFilter: string, managerId?: string
+): Promise<any[]> {
   const query = `
     SELECT
       segments.date,

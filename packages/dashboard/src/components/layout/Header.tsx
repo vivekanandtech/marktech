@@ -1,4 +1,4 @@
-import { Bell, ChevronDown, Globe, MapPin, Sun, Moon, Monitor, LogOut, Settings } from 'lucide-react'
+import { Bell, ChevronDown, Sun, Moon, Monitor, LogOut, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { useState, useRef, useEffect } from 'react'
@@ -7,10 +7,10 @@ import { useAuthStore } from '@/store/authStore'
 import { useThemeStore, type ThemeMode } from '@/store/themeStore'
 import { useClientStore } from '@/store/clientStore'
 import { getAlerts } from '@/lib/mock-data'
+import { CountryDropdown } from './CountryDropdown'
 
 const DATE_RANGES = ['1D', '3D', '7D', '14D', '30D', '3M', '6M', '1Y'] as const
 type DateRange = typeof DATE_RANGES[number]
-type Market = 'all' | 'india' | 'international'
 
 const THEME_OPTIONS: { value: ThemeMode; label: string; icon: React.ReactNode }[] = [
   { value: 'light', label: 'Light', icon: <Sun size={14} /> },
@@ -68,7 +68,7 @@ function ThemeToggle() {
 }
 
 export function Header() {
-  const { clientId, setClientId, dateRange, setDateRange, market, setMarket } = useFilterStore()
+  const { clientId, setClientId, dateRange, setDateRange } = useFilterStore()
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
   const [userOpen, setUserOpen] = useState(false)
@@ -183,25 +183,8 @@ export function Header() {
 
       <div className="w-px h-5 bg-surface-3" />
 
-      {/* Market filter */}
-      <div className="flex items-center gap-0.5 bg-surface-2 rounded-lg p-0.5 border border-theme">
-        {([
-          { label: 'All', value: 'all', icon: null },
-          { label: 'India', value: 'india', icon: <MapPin size={10} /> },
-          { label: 'Intl', value: 'international', icon: <Globe size={10} /> },
-        ] as { label: string; value: Market; icon: React.ReactNode }[]).map((m) => (
-          <button
-            key={m.value}
-            onClick={() => setMarket(m.value)}
-            className={clsx(
-              'flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
-              market === m.value ? 'bg-violet-600 text-white shadow-sm' : 't2 hover:t1'
-            )}
-          >
-            {m.icon}{m.label}
-          </button>
-        ))}
-      </div>
+      {/* Country filter */}
+      <CountryDropdown />
 
       {/* Right */}
       <div className="ml-auto flex items-center gap-2">

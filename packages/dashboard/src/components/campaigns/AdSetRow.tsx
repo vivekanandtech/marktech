@@ -7,12 +7,13 @@ import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
 import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdRow } from './AdRow'
 import { adsetManagerUrl } from '@/lib/meta-links'
+import { MetricTrend, isMetricImproving } from '@/lib/meta-transform'
 
 interface AdSet {
   id: string; name: string; audience: string; status: string
   spend: number; roas: number; ctr: number; cpa: number; cpc: number
   impressions: number; clicks: number; conversions: number; frequency: number
-  actionTag: string; trend: number; ads: any[]
+  actionTag: string; trend: MetricTrend | null; ads: any[]
 }
 
 export function AdSetRow({ adSet, adAccountId }: { adSet: AdSet; adAccountId?: string | null }) {
@@ -52,17 +53,24 @@ export function AdSetRow({ adSet, adAccountId }: { adSet: AdSet; adAccountId?: s
 
         <td className="px-3 py-2.5 text-right text-xs">
           <p className="font-medium t2">{formatCurrency(adSet.spend)}</p>
+          {adSet.trend && <TrendBadge change={adSet.trend.spendPct ?? 0} improving={isMetricImproving('spend', adSet.trend.spendPct ?? 0)} size="sm" />}
         </td>
 
         <td className="px-3 py-2.5 text-right text-xs">
           <p className={clsx('font-bold', adSet.roas <= 0 ? 't3' : adSet.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : adSet.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
             {formatRoas(adSet.roas)}
           </p>
+          {adSet.trend && <TrendBadge change={adSet.trend.roasPct ?? 0} improving={isMetricImproving('roas', adSet.trend.roasPct ?? 0)} size="sm" />}
         </td>
 
-        <td className="px-3 py-2.5 text-right text-xs t3">{formatPercent(adSet.ctr)}</td>
-        <td className="px-3 py-2.5 text-right text-xs t3">{formatCurrency(adSet.cpa)}</td>
-        <td className="px-3 py-2.5 text-right"><TrendBadge change={adSet.trend} improving={adSet.trend > 0} /></td>
+        <td className="px-3 py-2.5 text-right text-xs t3">
+          {formatPercent(adSet.ctr)}
+          {adSet.trend && <div><TrendBadge change={adSet.trend.ctrPct ?? 0} improving={isMetricImproving('ctr', adSet.trend.ctrPct ?? 0)} size="sm" /></div>}
+        </td>
+        <td className="px-3 py-2.5 text-right text-xs t3">
+          {formatCurrency(adSet.cpa)}
+          {adSet.trend && <div><TrendBadge change={adSet.trend.cpaPct ?? 0} improving={isMetricImproving('cpa', adSet.trend.cpaPct ?? 0)} size="sm" /></div>}
+        </td>
       </tr>
 
       {expanded && adSet.ads.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} />)}

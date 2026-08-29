@@ -1,12 +1,14 @@
 import { FastifyInstance } from 'fastify'
 import {
   getGoogleOAuthUrl, exchangeGoogleCode, getValidAccessToken,
-  listAccessibleCustomers, getGoogleCampaigns, getGoogleAdGroups,
-  getGoogleAds, getGoogleAccountInsights, getGoogleDailyInsights,
+  listAccessibleCustomers, getGoogleCampaigns, getGoogleCampaignsForWindow, getGoogleAdGroups,
+  getGoogleAdGroupsForWindow, getGoogleAds, getGoogleAdsForWindow,
+  getGoogleAccountInsights, getGoogleDailyInsights,
   googleTokenStore, GoogleCustomer,
   dbSaveGoogleToken, dbGetGoogleToken, dbDeleteGoogleToken,
   dbGetAllGoogleSessions, dbUpdateGoogleCustomer,
 } from '../services/google'
+import { previousWindow } from '../lib/dateWindows'
 
 // ─── Auth routes (public — registered under /auth) ───────────────────────────
 
@@ -76,7 +78,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       'developer-token': devToken,
       'Content-Type': 'application/json',
     }
-    const res = await fetch('https://googleads.googleapis.com/v21/customers:listAccessibleCustomers', { headers })
+    const res = await fetch('https://googleads.googleapis.com/v25/customers:listAccessibleCustomers', { headers })
     const text = await res.text()
     return { status: res.status, devTokenLength: devToken.length, body: text.slice(0, 500) }
   })
@@ -179,13 +181,19 @@ export async function googleDataRoutes(app: FastifyInstance) {
         }
       }
 
-      const [campaigns, accountInsights] = await Promise.all([
+      const [campaigns, previousCampaigns, accountInsights] = await Promise.all([
         safe('campaigns', () => getGoogleCampaigns(auth.customerId, auth.accessToken, dateRange, auth.managerId)),
+        safe('previousCampaigns', () => getGoogleCampaignsForWindow(auth.customerId, auth.accessToken, previousWindow(dateRange), auth.managerId)),
         safe('accountInsights', () => getGoogleAccountInsights(auth.customerId, auth.accessToken, dateRange, auth.managerId)),
       ])
 
+      const previousByCampaignId = new Map<string, any>((previousCampaigns ?? []).map((c: any) => [c.campaign?.id, c]))
+
       return {
-        data: campaigns ?? [],
+        data: (campaigns ?? []).map((c: any) => ({
+          ...c,
+          previousMetrics: previousByCampaignId.get(c.campaign?.id)?.metrics ?? null,
+        })),
         accountInsights: accountInsights ?? null,
         customerId: auth.customerId,
         source: 'google_ads_api',
@@ -201,20 +209,38 @@ export async function googleDataRoutes(app: FastifyInstance) {
       const auth = await resolveGoogleToken(clientId)
       if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
 
+      const window = previousWindow(dateRange)
+
       try {
-        const [adGroups, adsRaw] = await Promise.all([
+        const [adGroups, previousAdGroups, adsRaw, previousAdsRaw] = await Promise.all([
           getGoogleAdGroups(auth.customerId, campaignId, auth.accessToken, dateRange, auth.managerId),
+          getGoogleAdGroupsForWindow(auth.customerId, campaignId, auth.accessToken, window, auth.managerId).catch(() => []),
           // Fetch all ads for this campaign keyed by ad_group.id
           (async () => {
             try {
-              const dateFilter = dateRange
               const allAds: any[] = []
               const adGroupRows = await getGoogleAdGroups(auth.customerId, campaignId, auth.accessToken, dateRange, auth.managerId)
               await Promise.all(
                 adGroupRows.map(async (ag: any) => {
                   const agId = ag.adGroup?.id
                   if (!agId) return
-                  const ads = await getGoogleAds(auth.customerId, agId, auth.accessToken, dateFilter, auth.managerId)
+                  const ads = await getGoogleAds(auth.customerId, agId, auth.accessToken, dateRange, auth.managerId)
+                  allAds.push(...ads.map((a: any) => ({ ...a, _adGroupId: agId })))
+                })
+              )
+              return allAds
+            } catch { return [] }
+          })(),
+          // Same, for the previous window — used to compute trend badges.
+          (async () => {
+            try {
+              const allAds: any[] = []
+              const adGroupRows = await getGoogleAdGroupsForWindow(auth.customerId, campaignId, auth.accessToken, window, auth.managerId)
+              await Promise.all(
+                adGroupRows.map(async (ag: any) => {
+                  const agId = ag.adGroup?.id
+                  if (!agId) return
+                  const ads = await getGoogleAdsForWindow(auth.customerId, agId, auth.accessToken, window, auth.managerId)
                   allAds.push(...ads.map((a: any) => ({ ...a, _adGroupId: agId })))
                 })
               )
@@ -232,10 +258,19 @@ export async function googleDataRoutes(app: FastifyInstance) {
           adsByGroup.set(agId, list)
         }
 
+        const previousAdGroupMetrics = new Map(previousAdGroups.map((ag: any) => [ag.adGroup?.id, ag.metrics]))
+        const previousAdMetrics = new Map(
+          previousAdsRaw.map((a: any) => [a.adGroupAd?.ad?.id, a.metrics])
+        )
+
         return {
           adGroups: adGroups.map((ag: any) => ({
             ...ag,
-            ads: adsByGroup.get(ag.adGroup?.id) ?? [],
+            previousMetrics: previousAdGroupMetrics.get(ag.adGroup?.id) ?? null,
+            ads: (adsByGroup.get(ag.adGroup?.id) ?? []).map((ad: any) => ({
+              ...ad,
+              previousMetrics: previousAdMetrics.get(ad.adGroupAd?.ad?.id) ?? null,
+            })),
           })),
           source: 'google_ads_api',
         }

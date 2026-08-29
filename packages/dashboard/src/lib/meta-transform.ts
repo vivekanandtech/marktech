@@ -17,6 +17,43 @@ function getConversionValue(ins: any): number {
     .reduce((sum: number, a: any) => sum + safeFloat(a.value), 0)
 }
 
+// Per-metric period-over-period change, shown inline next to each metric value
+// instead of a single dedicated Trend column. null means "no previous-period
+// data to compare against" (e.g. campaign created mid-window) — the UI should
+// render nothing rather than a misleading 0%.
+export interface MetricTrend {
+  spendPct: number | null
+  roasPct: number | null
+  ctrPct: number | null
+  cpaPct: number | null
+}
+
+function pctChange(current: number, previous: number): number {
+  if (previous === 0) return current === 0 ? 0 : 100
+  return ((current - previous) / previous) * 100
+}
+
+export function computeTrend(currentIns: any, previousIns: any | null | undefined): MetricTrend | null {
+  if (!previousIns) return null
+  const cur = transformInsightMetrics(currentIns)
+  const prev = transformInsightMetrics(previousIns)
+  return {
+    spendPct: pctChange(cur.spend, prev.spend),
+    roasPct: pctChange(cur.roas, prev.roas),
+    ctrPct: pctChange(cur.ctr, prev.ctr),
+    cpaPct: pctChange(cur.cpa, prev.cpa),
+  }
+}
+
+// Higher is better for roas/ctr; lower is better for cpa; spend has no
+// inherent "good" direction (scaling a winner up is a deliberate choice),
+// so it's never shown as a regression.
+export function isMetricImproving(metric: 'spend' | 'roas' | 'ctr' | 'cpa', pct: number): boolean {
+  if (metric === 'cpa') return pct <= 0
+  if (metric === 'spend') return true
+  return pct >= 0
+}
+
 export function transformInsightMetrics(ins: any) {
   const spend       = safeFloat(ins?.spend)
   const impressions = safeInt(ins?.impressions)
@@ -68,7 +105,7 @@ export function transformMetaAd(a: any) {
       thumbnailUrl: creative.thumbnail_url ?? creative.image_url ?? '',
       ...metrics,
       actionTag: deriveActionTag(metrics.roas),
-      trend: 0,
+      trend: computeTrend(a.insights, a.previousInsights),
     }
   } catch {
     return null
@@ -88,7 +125,7 @@ export function transformMetaAdSet(as: any) {
       status: (as.effective_status ?? as.status ?? 'unknown').toLowerCase(),
       ...metrics,
       actionTag: deriveActionTag(metrics.roas),
-      trend: 0,
+      trend: computeTrend(as.insights, as.previousInsights),
       ads,
     }
   } catch {
@@ -115,7 +152,7 @@ export function transformMetaCampaign(c: any) {
       dailyBudget,
       ...metrics,
       actionTag,
-      trend: 0,
+      trend: computeTrend(c.insights, c.previousInsights),
       adSets,
     }
   } catch {

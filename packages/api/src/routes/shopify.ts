@@ -3,6 +3,8 @@ import {
   getShopifyOAuthUrl, exchangeShopifyCode, getShopInfo, runShopifyQL,
   normalizeShopDomain, shopifyTokenStore, getClientCredentialsToken,
   dbSaveShopifyToken, dbGetShopifyToken, dbDeleteShopifyToken,
+  getOrdersByChannel, getMetaSessions, getSalesByCountry, getAvailableCountries,
+  getNewCustomerCount,
 } from '../services/shopify'
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
@@ -233,6 +235,101 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
         return { data, shopDomain: token.shopDomain, source: 'shopify_api' }
       } catch (err: any) {
         app.log.error({ err: err.message, clientId }, 'Shopify sales query failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // Orders attributed to a channel (Meta/Google/Direct/Organic/Other) via
+  // last-click UTM/referrer attribution — the source of truth for Attributed CPR, MER.
+  app.get<{ Querystring: { clientId?: string; dateRange?: string } }>(
+    '/orders-by-channel',
+    async (request, reply) => {
+      const { clientId = 'default', dateRange = '30D' } = request.query
+      const token = await resolveShopifyToken(clientId)
+      if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
+
+      const days = parseInt(dateRange.replace(/\D/g, ''), 10) || 30
+      try {
+        const data = await getOrdersByChannel(token.shopDomain, token.accessToken, days)
+        return { data, shopDomain: token.shopDomain, source: 'shopify_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, clientId }, 'Shopify orders-by-channel query failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // Shopify sessions attributed to Meta traffic (utm/referrer) — replaces "Reach".
+  app.get<{ Querystring: { clientId?: string; dateRange?: string } }>(
+    '/meta-sessions',
+    async (request, reply) => {
+      const { clientId = 'default', dateRange = '30D' } = request.query
+      const token = await resolveShopifyToken(clientId)
+      if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
+
+      const days = parseInt(dateRange.replace(/\D/g, ''), 10) || 30
+      try {
+        const sessions = await getMetaSessions(token.shopDomain, token.accessToken, days)
+        return { sessions, shopDomain: token.shopDomain, source: 'shopify_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, clientId }, 'Shopify meta-sessions query failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // Sales grouped by billing country — real dimension, not a hardcoded exclusion.
+  app.get<{ Querystring: { clientId?: string; dateRange?: string } }>(
+    '/sales-by-country',
+    async (request, reply) => {
+      const { clientId = 'default', dateRange = '30D' } = request.query
+      const token = await resolveShopifyToken(clientId)
+      if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
+
+      const days = parseInt(dateRange.replace(/\D/g, ''), 10) || 30
+      try {
+        const data = await getSalesByCountry(token.shopDomain, token.accessToken, days)
+        return { data, shopDomain: token.shopDomain, source: 'shopify_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, clientId }, 'Shopify sales-by-country query failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // Countries with real order history, for the country filter dropdown.
+  app.get<{ Querystring: { clientId?: string } }>(
+    '/countries',
+    async (request, reply) => {
+      const { clientId = 'default' } = request.query
+      const token = await resolveShopifyToken(clientId)
+      if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
+
+      try {
+        const countries = await getAvailableCountries(token.shopDomain, token.accessToken)
+        return { countries }
+      } catch (err: any) {
+        app.log.error({ err: err.message, clientId }, 'Shopify countries query failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // New-customer count (sampled from the Orders API) — feeds nCAC.
+  app.get<{ Querystring: { clientId?: string; dateRange?: string } }>(
+    '/new-customers',
+    async (request, reply) => {
+      const { clientId = 'default', dateRange = '30D' } = request.query
+      const token = await resolveShopifyToken(clientId)
+      if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
+
+      const days = parseInt(dateRange.replace(/\D/g, ''), 10) || 30
+      try {
+        const data = await getNewCustomerCount(token.shopDomain, token.accessToken, days)
+        return { data, shopDomain: token.shopDomain, source: 'shopify_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, clientId }, 'Shopify new-customers query failed')
         return reply.code(500).send({ error: err.message })
       }
     }
