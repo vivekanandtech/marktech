@@ -5,6 +5,7 @@ import {
   dbSaveCrossChannelInsights, dbGetCrossChannelInsights, dbUpdateRecommendationStatus,
   RecommendationStatus,
 } from '../services/cross-channel-insights'
+import { assertClientAccess } from '../lib/auth-guard'
 
 export async function insightsRoutes(app: FastifyInstance) {
   app.post<{ Body: InsightInput }>('/generate', async (request, reply) => {
@@ -21,6 +22,7 @@ export async function insightsRoutes(app: FastifyInstance) {
   // Meta + Google + Shopify truth metrics rather than Meta alone.
   app.post<{ Body: { clientId?: string; dateRange?: string } }>('/cross-channel/generate', async (request, reply) => {
     const { clientId = 'default', dateRange = '30D' } = request.body ?? {}
+    assertClientAccess(request, clientId)
     try {
       const input = await buildCrossChannelInput(clientId, dateRange)
       const recommendations = await generateCrossChannelInsights(input)
@@ -35,6 +37,7 @@ export async function insightsRoutes(app: FastifyInstance) {
   // Avoids an LLM call on every page load — returns whatever was last generated.
   app.get<{ Querystring: { clientId?: string } }>('/cross-channel/latest', async (request, reply) => {
     const { clientId = 'default' } = request.query
+    assertClientAccess(request, clientId)
     try {
       const payload = await dbGetCrossChannelInsights(clientId)
       return { payload }
@@ -49,6 +52,7 @@ export async function insightsRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { clientId, rank } = request.params
       const { status } = request.body
+      assertClientAccess(request, clientId)
       try {
         const payload = await dbUpdateRecommendationStatus(clientId, Number(rank), status)
         if (!payload) return reply.code(404).send({ error: 'No cross-channel insights found for this client' })

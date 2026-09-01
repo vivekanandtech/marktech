@@ -18,23 +18,41 @@ export function normalizeShopDomain(shop: string): string {
   return s.includes('.myshopify.com') ? s : `${s}.myshopify.com`
 }
 
-export function getShopifyOAuthUrl(shopDomain: string, clientId: string): string {
-  const SHOPIFY_CLIENT_ID = process.env.SHOPIFY_CLIENT_ID!
+// Every Marktech client must register their own Shopify app (Client ID/Secret,
+// stored in clients.settings.shopifyApp) so their store is onboarded via its
+// own distributable install link. Deliberately no shared/global fallback —
+// one client's app being silently reused as a "default" for another client
+// would mean that app ends up with installs from stores it has no relationship
+// to, and any change made for one client's sake (rotating a secret, adjusting
+// scopes) could break a completely unrelated client's connection.
+async function getShopifyAppCredentials(marktechClientId: string): Promise<{ clientId: string; clientSecret: string }> {
+  const db = getPool()
+  if (db) {
+    const res = await db.query<{ settings: any }>(`SELECT settings FROM clients WHERE id = $1`, [marktechClientId])
+    const custom = res.rows[0]?.settings?.shopifyApp
+    if (custom?.clientId && custom?.clientSecret) return custom
+  }
+  throw new Error('No Shopify app configured for this client — add one in the admin panel (Connections tab) before connecting.')
+}
+
+export async function getShopifyOAuthUrl(shopDomain: string, marktechClientId: string): Promise<string> {
+  const { clientId: appClientId } = await getShopifyAppCredentials(marktechClientId)
   const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI ?? 'http://localhost:3001/auth/shopify/callback'
   const normalized = normalizeShopDomain(shopDomain)
   const scopes = 'read_analytics,read_orders,read_products,read_reports,read_customers'
-  return `https://${normalized}/admin/oauth/authorize?client_id=${SHOPIFY_CLIENT_ID}&scope=${scopes}&redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&state=${encodeURIComponent(clientId)}`
+  return `https://${normalized}/admin/oauth/authorize?client_id=${appClientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&state=${encodeURIComponent(marktechClientId)}`
 }
 
 // Client credentials grant — Dev Dashboard apps only (app + store must be same Shopify org)
 // Returns a 24-hour access token; no OAuth redirect needed.
-export async function getClientCredentialsToken(shopDomain: string): Promise<{
+export async function getClientCredentialsToken(shopDomain: string, marktechClientId: string): Promise<{
   accessToken: string; scope: string; expiresAt: string
 }> {
+  const { clientId, clientSecret } = await getShopifyAppCredentials(marktechClientId)
   const params = new URLSearchParams({
     grant_type: 'client_credentials',
-    client_id: process.env.SHOPIFY_CLIENT_ID!,
-    client_secret: process.env.SHOPIFY_CLIENT_SECRET!,
+    client_id: clientId,
+    client_secret: clientSecret,
   })
   const resp = await fetch(`https://${shopDomain}/admin/oauth/access_token`, {
     method: 'POST',
@@ -51,15 +69,12 @@ export async function getClientCredentialsToken(shopDomain: string): Promise<{
   return { accessToken: data.access_token, scope: data.scope, expiresAt }
 }
 
-export async function exchangeShopifyCode(shopDomain: string, code: string): Promise<{ accessToken: string; scope: string }> {
+export async function exchangeShopifyCode(shopDomain: string, code: string, marktechClientId: string): Promise<{ accessToken: string; scope: string }> {
+  const { clientId, clientSecret } = await getShopifyAppCredentials(marktechClientId)
   const resp = await fetch(`https://${shopDomain}/admin/oauth/access_token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: process.env.SHOPIFY_CLIENT_ID,
-      client_secret: process.env.SHOPIFY_CLIENT_SECRET,
-      code,
-    }),
+    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }),
   })
   if (!resp.ok) {
     const text = await resp.text()

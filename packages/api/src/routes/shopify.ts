@@ -6,20 +6,27 @@ import {
   getOrdersByChannel, getMetaSessions, getSalesByCountry, getAvailableCountries,
   getNewCustomerCount,
 } from '../services/shopify'
+import { assertClientAccess } from '../lib/auth-guard'
+import { clientExists } from '../lib/clients'
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 
 export async function shopifyAuthRoutes(app: FastifyInstance) {
 
-  // Step 1: Redirect to Shopify OAuth consent screen
+  // Returns the Shopify consent-screen URL — see the matching comment on
+  // GET /auth/meta for why this can't be a server-side redirect any more.
   // Frontend calls: GET /auth/shopify?clientId=xxx&shop=dohar-india
   app.get<{ Querystring: { clientId?: string; shop?: string } }>(
     '/shopify',
     async (request, reply) => {
       const { clientId = 'default', shop } = request.query
+      assertClientAccess(request, clientId)
       if (!shop) return reply.code(400).send({ error: 'shop query param required (e.g. dohar-india)' })
-      const url = getShopifyOAuthUrl(shop, clientId)
-      return reply.redirect(url)
+      try {
+        return { url: await getShopifyOAuthUrl(shop, clientId) }
+      } catch (err: any) {
+        return reply.code(400).send({ error: err.message })
+      }
     }
   )
 
@@ -37,8 +44,13 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       }
 
       const clientId = state ?? 'default'
+      if (!(await clientExists(clientId))) {
+        return reply.redirect(
+          `${FRONTEND}/settings?shopify=error&clientId=${encodeURIComponent(clientId)}&reason=unknown_client`
+        )
+      }
       try {
-        const { accessToken, scope } = await exchangeShopifyCode(shop, code)
+        const { accessToken, scope } = await exchangeShopifyCode(shop, code, clientId)
         const shopInfo = await getShopInfo(shop, accessToken)
 
         const tokenData = { shopDomain: shop, accessToken, shopName: shopInfo.name, scope }
@@ -65,6 +77,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
   // Get connection status
   app.get<{ Querystring: { clientId?: string } }>('/shopify/status', async (request) => {
     const clientId = request.query.clientId ?? 'default'
+    assertClientAccess(request, clientId)
     let stored = shopifyTokenStore.get(clientId)
     if (!stored) {
       const row = await dbGetShopifyToken(clientId)
@@ -80,6 +93,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     '/shopify/connect',
     async (request, reply) => {
       const { clientId = 'default', shopDomain, accessToken } = request.body
+      assertClientAccess(request, clientId)
       if (!shopDomain || !accessToken) {
         return reply.code(400).send({ error: 'shopDomain and accessToken are required' })
       }
@@ -112,11 +126,12 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     '/shopify/connect-app',
     async (request, reply) => {
       const { clientId = 'default', shopDomain } = request.body
+      assertClientAccess(request, clientId)
       if (!shopDomain) return reply.code(400).send({ error: 'shopDomain is required' })
 
       const normalized = normalizeShopDomain(shopDomain)
       try {
-        const { accessToken, scope, expiresAt } = await getClientCredentialsToken(normalized)
+        const { accessToken, scope, expiresAt } = await getClientCredentialsToken(normalized, clientId)
         const shopInfo = await getShopInfo(normalized, accessToken)
         const tokenData = { shopDomain: normalized, accessToken, shopName: shopInfo.name, scope, expiresAt }
         shopifyTokenStore.set(clientId, tokenData)
@@ -135,6 +150,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
   // Disconnect — clears memory and DB row
   app.delete<{ Querystring: { clientId?: string } }>('/shopify/disconnect', async (request) => {
     const clientId = request.query.clientId ?? 'default'
+    assertClientAccess(request, clientId)
     shopifyTokenStore.delete(clientId)
     await dbDeleteShopifyToken(clientId).catch((err) =>
       app.log.error({ err: err.message }, 'Failed to delete Shopify token from DB')
@@ -158,7 +174,7 @@ async function resolveShopifyToken(clientId: string): Promise<{ shopDomain: stri
     const msUntilExpiry = new Date(stored.expiresAt).getTime() - Date.now()
     if (msUntilExpiry < 5 * 60 * 1000) {
       try {
-        const { accessToken, scope, expiresAt } = await getClientCredentialsToken(stored.shopDomain)
+        const { accessToken, scope, expiresAt } = await getClientCredentialsToken(stored.shopDomain, clientId)
         const refreshed = { ...stored, accessToken, scope, expiresAt }
         shopifyTokenStore.set(clientId, refreshed)
         await dbSaveShopifyToken(clientId, refreshed).catch(() => {})
@@ -181,6 +197,7 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
     '/sessions',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
@@ -211,6 +228,7 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
     '/sales',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D', salesChannel } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
@@ -246,6 +264,7 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
     '/orders-by-channel',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
@@ -265,6 +284,7 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
     '/meta-sessions',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
@@ -284,6 +304,7 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
     '/sales-by-country',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
@@ -303,6 +324,7 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
     '/countries',
     async (request, reply) => {
       const { clientId = 'default' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
@@ -321,6 +343,7 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
     '/new-customers',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 

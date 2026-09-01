@@ -12,6 +12,7 @@ import { shopifyAuthRoutes, shopifyDataRoutes } from './routes/shopify'
 import { googleAuthRoutes, googleDataRoutes } from './routes/google-auth'
 import { insightsRoutes } from './routes/insights'
 import { metricsRoutes } from './routes/metrics'
+import { clientsRoutes } from './routes/clients'
 
 export function buildApp() {
   const app = Fastify({ logger: { level: 'info' } })
@@ -36,9 +37,21 @@ export function buildApp() {
 
   app.register(sensible)
 
+  // Only login and the three OAuth callbacks are genuinely public — a callback
+  // is the ad platform's own redirect hitting our server directly, so it can't
+  // carry a bearer token. Everything else under /auth (status, disconnect,
+  // select-account, and the connect-initiating routes) previously also matched
+  // a blanket "starts with /auth" exemption, meaning any clientId's tokens
+  // could be read/changed by an unauthenticated caller. Narrowed to an
+  // allowlist of exactly the paths that must stay public.
+  const PUBLIC_PATHS = new Set([
+    '/health', '/auth/login',
+    '/auth/meta/callback', '/auth/google/callback', '/auth/shopify/callback',
+  ])
+
   app.addHook('onRequest', async (request, reply) => {
-    // Auth routes and health check are public
-    if (request.url.startsWith('/auth') || request.url === '/health') return
+    const path = request.url.split('?')[0]
+    if (PUBLIC_PATHS.has(path)) return
 
     try {
       await request.jwtVerify()
@@ -65,6 +78,7 @@ export function buildApp() {
   app.register(googleDataRoutes, { prefix: '/api/google' })
   app.register(insightsRoutes, { prefix: '/api/insights' })
   app.register(metricsRoutes, { prefix: '/api/metrics' })
+  app.register(clientsRoutes, { prefix: '/api/clients' })
 
   return app
 }

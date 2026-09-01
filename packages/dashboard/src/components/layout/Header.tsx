@@ -99,69 +99,86 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handler)
   }, [clientOpen])
 
+  const isAdmin = user?.role === 'admin'
+
   return (
     <header className="sticky top-0 z-30 flex items-center gap-3 px-5 py-2.5 bg-surface border-b border-theme backdrop-blur transition-colors">
-      {/* Client switcher */}
-      <div className="relative" ref={clientRef}>
-        {clients.length === 0 ? (
-          <button
-            onClick={() => { navigate('/settings'); }}
-            className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors text-sm font-medium t3 border border-dashed border-theme"
-          >
-            + Add client
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={() => setClientOpen(!clientOpen)}
-              className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors text-sm font-medium t1 border border-theme"
+      {/* Client switcher — admin only. A client_user has exactly one client
+          (their JWT says so), so there's nothing to switch between. */}
+      {!isAdmin ? (
+        currentClient && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium t1">
+            <span
+              className="flex items-center justify-center w-6 h-6 rounded-md text-[11px] font-bold text-white shrink-0"
+              style={{ backgroundColor: currentClient.logoColor }}
             >
-              <span
-                className="flex items-center justify-center w-6 h-6 rounded-md text-[11px] font-bold text-white shrink-0"
-                style={{ backgroundColor: currentClient?.logoColor ?? '#6366f1' }}
-              >
-                {currentClient?.logoInitials ?? '?'}
-              </span>
-              <span className="max-w-[110px] truncate">{currentClient?.name ?? 'Select client'}</span>
-              <ChevronDown size={13} className={clsx('t3 shrink-0 transition-transform', clientOpen && 'rotate-180')} />
+              {currentClient.logoInitials}
+            </span>
+            <span className="max-w-[150px] truncate">{currentClient.name}</span>
+          </div>
+        )
+      ) : (
+        <div className="relative" ref={clientRef}>
+          {clients.length === 0 ? (
+            <button
+              onClick={() => navigate('/admin/clients')}
+              className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors text-sm font-medium t3 border border-dashed border-theme"
+            >
+              + Add client
             </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setClientOpen(!clientOpen)}
+                className="flex items-center gap-2 px-3 py-2 bg-surface-2 hover:bg-surface-3 rounded-lg transition-colors text-sm font-medium t1 border border-theme"
+              >
+                <span
+                  className="flex items-center justify-center w-6 h-6 rounded-md text-[11px] font-bold text-white shrink-0"
+                  style={{ backgroundColor: currentClient?.logoColor ?? '#6366f1' }}
+                >
+                  {currentClient?.logoInitials ?? '?'}
+                </span>
+                <span className="max-w-[110px] truncate">{currentClient?.name ?? 'Select client'}</span>
+                <ChevronDown size={13} className={clsx('t3 shrink-0 transition-transform', clientOpen && 'rotate-180')} />
+              </button>
 
-            {clientOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-64 bg-surface border border-theme rounded-xl shadow-2xl py-1 z-50">
-                {clients.map((c) => (
-                  <button
-                    key={c.id}
-                    onClick={() => { setClientId(c.id); setClientOpen(false) }}
-                    className={clsx(
-                      'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left',
-                      c.id === clientId ? 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-400' : 't2 hover:t1 hover:bg-surface-2'
-                    )}
-                  >
-                    <span
-                      className="flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold text-white shrink-0"
-                      style={{ backgroundColor: c.logoColor }}
+              {clientOpen && (
+                <div className="absolute left-0 top-full mt-1.5 w-64 bg-surface border border-theme rounded-xl shadow-2xl py-1 z-50">
+                  {clients.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => { setClientId(c.id); setClientOpen(false) }}
+                      className={clsx(
+                        'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm transition-colors text-left',
+                        c.id === clientId ? 'bg-indigo-500/10 text-indigo-500 dark:text-indigo-400' : 't2 hover:t1 hover:bg-surface-2'
+                      )}
                     >
-                      {c.logoInitials}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="font-medium leading-tight truncate">{c.name}</p>
-                      <p className="text-xs t3 truncate">{c.industry}</p>
-                    </div>
-                  </button>
-                ))}
-                <div className="border-t border-theme mt-1 pt-1">
-                  <button
-                    onClick={() => { setClientOpen(false); navigate('/settings') }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs t3 hover:t1 hover:bg-surface-2 transition-colors"
-                  >
-                    + Manage clients
-                  </button>
+                      <span
+                        className="flex items-center justify-center w-7 h-7 rounded-md text-xs font-bold text-white shrink-0"
+                        style={{ backgroundColor: c.logoColor }}
+                      >
+                        {c.logoInitials}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-medium leading-tight truncate">{c.name}</p>
+                        <p className="text-xs t3 truncate">{c.industry}</p>
+                      </div>
+                    </button>
+                  ))}
+                  <div className="border-t border-theme mt-1 pt-1">
+                    <button
+                      onClick={() => { setClientOpen(false); navigate('/admin/clients') }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs t3 hover:t1 hover:bg-surface-2 transition-colors"
+                    >
+                      + Manage clients
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="w-px h-5 bg-surface-3" />
 
@@ -216,12 +233,21 @@ export function Header() {
                 <p className="text-xs font-semibold t1 truncate">{user?.name}</p>
                 <p className="text-[10px] t3 truncate">{user?.email}</p>
               </div>
-              <button
-                onClick={() => { setUserOpen(false); navigate('/settings') }}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs t2 hover:t1 hover:bg-surface-2 transition-colors"
-              >
-                <Settings size={13} /> Settings
-              </button>
+              {isAdmin ? (
+                <button
+                  onClick={() => { setUserOpen(false); navigate('/admin/clients') }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs t2 hover:t1 hover:bg-surface-2 transition-colors"
+                >
+                  <Settings size={13} /> Admin panel
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setUserOpen(false); navigate('/settings') }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs t2 hover:t1 hover:bg-surface-2 transition-colors"
+                >
+                  <Settings size={13} /> Settings
+                </button>
+              )}
               <button
                 onClick={() => { logout(); navigate('/login') }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-500 hover:bg-red-500/10 transition-colors"

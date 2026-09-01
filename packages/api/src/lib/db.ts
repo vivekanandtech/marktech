@@ -28,6 +28,34 @@ export async function initDb(): Promise<void> {
   }
   try {
     await db.query(`
+      CREATE TABLE IF NOT EXISTS clients (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        industry      TEXT,
+        logo_initials TEXT,
+        logo_color    TEXT,
+        settings      JSONB NOT NULL DEFAULT '{}',
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id            TEXT PRIMARY KEY,
+        email         TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        name          TEXT NOT NULL,
+        role          TEXT NOT NULL CHECK (role IN ('admin', 'client_user')),
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS user_clients (
+        user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        PRIMARY KEY (user_id, client_id)
+      )
+    `)
+    await db.query(`
       CREATE TABLE IF NOT EXISTS meta_tokens (
         client_id               TEXT PRIMARY KEY,
         access_token            TEXT NOT NULL,

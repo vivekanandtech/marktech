@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { AdminLayout } from '@/components/layout/AdminLayout'
 import { LoginPage } from '@/pages/LoginPage'
 import { PrivacyPolicyPage } from '@/pages/PrivacyPolicyPage'
 import { OverviewPage } from '@/pages/OverviewPage'
@@ -11,24 +12,30 @@ import { InsightsPage } from '@/pages/InsightsPage'
 import { CreativesPage } from '@/pages/CreativesPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { AdminClientsPage } from '@/pages/admin/AdminClientsPage'
+import { AdminClientDetailPage } from '@/pages/admin/AdminClientDetailPage'
 import { useAuthStore } from '@/store/authStore'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { initTheme } from '@/store/themeStore'
-
-const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001'
+import { apiFetch } from '@/lib/api'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const role = useAuthStore((s) => s.user?.role)
+  return role === 'admin' ? <>{children}</> : <Navigate to="/overview" replace />
+}
+
 export function syncMetaStatus(clientId: string) {
   const { setMetaConnected, setMetaDisconnected, assignAdAccount } = useClientStore.getState()
-  return fetch(`${API}/auth/meta/status?clientId=${clientId}`)
+  return apiFetch(`/auth/meta/status?clientId=${clientId}`)
     .then((r) => r.ok ? r.json() : null)
     .then((data) => {
-      if (!data) return  // server error (5xx) — don't touch connection state
+      if (!data) return  // server error (5xx) or forbidden — don't touch connection state
       if (data.connected) {
         setMetaConnected(clientId, {
           metaUserId: data.metaUserId,
@@ -36,132 +43,79 @@ export function syncMetaStatus(clientId: string) {
           expiresAt: data.expiresAt,
           accessToken: data.accessToken,
         })
-        // Apply the persisted account selection from DB if the client hasn't
-        // already chosen one. Without this, a status-path reconnect loses the
-        // selectedAdAccountId that the sessions path correctly applies.
         if (data.selectedAdAccountId) {
           const client = useClientStore.getState().clients.find((c) => c.id === clientId)
-          if (!client?.metaAdAccountId) {
-            assignAdAccount(clientId, data.selectedAdAccountId)
-          }
+          if (!client?.metaAdAccountId) assignAdAccount(clientId, data.selectedAdAccountId)
         }
       } else {
         setMetaDisconnected(clientId)
       }
     })
-    .catch(() => {})  // network failure — don't change connection state
+    .catch(() => {})
 }
 
-function MetaSyncProvider() {
+export function syncGoogleStatus(clientId: string) {
+  const { setGoogleConnected, setGoogleDisconnected } = useClientStore.getState()
+  return apiFetch(`/auth/google/status?clientId=${clientId}`)
+    .then((r) => r.ok ? r.json() : null)
+    .then((data) => {
+      if (!data) return
+      if (data.connected && data.customerId) {
+        setGoogleConnected(clientId, { customerId: data.customerId, customerName: data.customerName, customers: data.customers ?? [] })
+      } else if (!data.connected) {
+        setGoogleDisconnected(clientId)
+      }
+      // connected but no customerId yet — leave as-is; ClientGoogleSection's
+      // manual-entry form is what's showing in that state.
+    })
+    .catch(() => {})
+}
+
+export function syncShopifyStatus(clientId: string) {
+  const { setShopifyConnected, setShopifyDisconnected } = useClientStore.getState()
+  return apiFetch(`/auth/shopify/status?clientId=${clientId}`)
+    .then((r) => r.ok ? r.json() : null)
+    .then((data) => {
+      if (!data) return
+      if (data.connected) {
+        setShopifyConnected(clientId, { shopDomain: data.shopDomain, shopName: data.shopName })
+      } else {
+        setShopifyDisconnected(clientId)
+      }
+    })
+    .catch(() => {})
+}
+
+// Loads the authoritative, role-scoped client list for this login and keeps
+// the current client's live connection status in sync with the server.
+// Replaces the old approach of dumping every client's session to any caller
+// on mount (see Phase 2 — that endpoint is now admin-only and going away).
+function ClientSyncProvider() {
   const { clientId, setClientId } = useFilterStore()
-  const { clients, adoptSession } = useClientStore()
-  const currentClient = clients.find((c) => c.id === clientId)
-  const connected = currentClient?.meta.connected ?? false
-  const accessToken = currentClient?.meta.accessToken ?? null
-  const metaAdAccountId = currentClient?.metaAdAccountId ?? null
-  const prevAdAccountId = useRef<string | null>(null)
+  const { clients, setClientsFromServer } = useClientStore()
 
-  // On mount: discover active Meta sessions from server and adopt them locally.
-  // Runs unconditionally (no localStorage guard) so stale/disconnected demo
-  // clients on Machine B don't block real session data from the DB.
-  // After adoption, forces filterStore.clientId to the connected client.
   useEffect(() => {
-    fetch(`${API}/auth/meta/sessions`)
+    apiFetch('/api/clients')
       .then((r) => r.json())
-      .then(({ sessions }) => {
-        if (!sessions?.length) return
-        const { adoptSession: adopt } = useClientStore.getState()
-        sessions.forEach((s: any) => adopt({
-          clientId: s.clientId,
-          metaUserId: s.metaUserId,
-          adAccounts: s.adAccounts,
-          selectedAdAccountId: s.selectedAdAccountId,
-          accessToken: s.accessToken,
-          expiresAt: new Date(s.expiresAt).toISOString(),
-        }))
-
-        // After adoption, force filterStore to the connected client and save the
-        // auto-picked ad account back to DB so every browser uses the same account.
-        const { clients: updated } = useClientStore.getState()
-        const { clientId: currentId, setClientId: setId } = useFilterStore.getState()
-        const currentIsConnected = updated.find(c => c.id === currentId)?.meta.connected
-        if (!currentIsConnected) {
-          const firstConnected = updated.find(c => c.meta.connected)
-          if (firstConnected) {
-            setId(firstConnected.id)
-            // Persist the auto-picked ad account so other browsers get the same one
-            if (firstConnected.metaAdAccountId) {
-              fetch(`${API}/auth/meta/select-account`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId: firstConnected.id, adAccountId: firstConnected.metaAdAccountId }),
-              }).catch(() => {})
-            }
-          }
-        }
-      })
-      .catch((err) => console.warn('[Marktech] session fetch failed:', err))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])  // once on mount — reads store via getState() to avoid stale closure
-
-  // Auto-select first client if the stored clientId no longer exists in the list
-  useEffect(() => {
-    if (clients.length === 0) return
-    const valid = clients.find((c) => c.id === clientId)
-    if (!valid) {
-      const preferred = clients.find(c => c.meta.connected) ?? clients[0]
-      setClientId(preferred.id)
-    }
-  }, [clients, clientId, setClientId])
-
-  // Fall back to /auth/meta/status if not connected locally
-  useEffect(() => {
-    if (!connected && !accessToken && clientId) {
-      syncMetaStatus(clientId)
-    }
-  }, [clientId, connected, accessToken])
-
-  // Persist ad account selection to DB so other browsers pick it up
-  useEffect(() => {
-    if (!clientId || !metaAdAccountId) return
-    if (metaAdAccountId === prevAdAccountId.current) return
-    prevAdAccountId.current = metaAdAccountId
-    fetch(`${API}/auth/meta/select-account`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientId, adAccountId: metaAdAccountId }),
-    }).catch(() => {})
-  }, [clientId, metaAdAccountId])
-
-  return null
-}
-
-function GoogleSyncProvider() {
-  useEffect(() => {
-    fetch(`${API}/auth/google/sessions`)
-      .then((r) => r.json())
-      .then(({ sessions }) => {
-        if (!sessions?.length) return
-        const { adoptGoogleSession } = useClientStore.getState()
-        sessions.forEach((s: any) => adoptGoogleSession({
-          clientId: s.clientId,
-          customerId: s.customerId ?? null,
-          customerName: s.customerName ?? null,
-          customers: s.customers ?? [],
-        }))
-
-        // Force filterStore to a Google-connected client if current client isn't
-        const { clients: updated } = useClientStore.getState()
-        const { clientId: currentId, setClientId: setId } = useFilterStore.getState()
-        const currentIsGoogleConnected = updated.find((c) => c.id === currentId)?.google?.connected
-        if (!currentIsGoogleConnected) {
-          const firstConnected = updated.find((c) => c.google?.connected)
-          if (firstConnected) setId(firstConnected.id)
-        }
-      })
-      .catch((err) => console.warn('[Marktech] Google session fetch failed:', err))
+      .then((data) => setClientsFromServer(data.clients ?? []))
+      .catch((err) => console.warn('[Marktech] client list fetch failed:', err))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Default to the first available client once the list loads, if none picked yet
+  useEffect(() => {
+    if (clients.length === 0) return
+    if (!clients.find((c) => c.id === clientId)) setClientId(clients[0].id)
+  }, [clients, clientId, setClientId])
+
+  // Server is the source of truth for connection status, not whatever this
+  // browser happened to cache before — re-check whenever the client changes.
+  useEffect(() => {
+    if (!clientId) return
+    syncMetaStatus(clientId)
+    syncGoogleStatus(clientId)
+    syncShopifyStatus(clientId)
+  }, [clientId])
 
   return null
 }
@@ -178,8 +132,7 @@ export default function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <MetaSyncProvider />
-              <GoogleSyncProvider />
+              <ClientSyncProvider />
               <AppLayout />
             </ProtectedRoute>
           }
@@ -193,6 +146,20 @@ export default function App() {
           <Route path="creatives" element={<CreativesPage />} />
           <Route path="alerts" element={<AlertsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+        </Route>
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminRoute>
+                <AdminLayout />
+              </AdminRoute>
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<Navigate to="/admin/clients" replace />} />
+          <Route path="clients" element={<AdminClientsPage />} />
+          <Route path="clients/:id" element={<AdminClientDetailPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/overview" replace />} />
       </Routes>

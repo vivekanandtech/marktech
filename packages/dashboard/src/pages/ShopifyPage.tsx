@@ -54,12 +54,22 @@ function NotConnected({ clientId }: { clientId: string }) {
   const [error, setError] = useState<string | null>(null)
   const authToken = useAuthStore((s) => s.token)
 
-  function connectViaApp() {
+  async function connectViaApp() {
     if (!shop.trim()) return
     setConnecting(true)
     setError(null)
-    const params = new URLSearchParams({ shop: shop.trim(), clientId })
-    window.location.href = `${API}/auth/shopify?${params.toString()}`
+    try {
+      const params = new URLSearchParams({ shop: shop.trim(), clientId })
+      const r = await fetch(`${API}/auth/shopify?${params.toString()}`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      })
+      const data = await r.json()
+      if (!r.ok || data.error) throw new Error(data.error ?? 'Failed to start Shopify connect')
+      window.location.href = data.url
+    } catch (e: any) {
+      setError(e.message)
+      setConnecting(false)
+    }
   }
 
   async function connectViaToken() {

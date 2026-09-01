@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, TrendingUp, Target, Image, Bell, Settings,
-  ChevronRight, Zap, ShoppingBag, Sparkles,
+  ChevronRight, Zap, ShoppingBag, Sparkles, ArrowLeft,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useFilterStore } from '@/store/filterStore'
+import { useAuthStore } from '@/store/authStore'
 import { getAlerts } from '@/lib/mock-data'
 
 interface NavItem { label: string; to: string; icon: React.ReactNode }
@@ -36,6 +37,7 @@ const NAV: NavGroup[] = [
 
 export function Sidebar() {
   const clientId = useFilterStore((s) => s.clientId)
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   const unreadCount = getAlerts(clientId).filter((a) => !a.isRead).length
 
   return (
@@ -100,20 +102,32 @@ export function Sidebar() {
               )}
             </NavLink>
           </li>
-          <li>
-            <NavLink
-              to="/settings"
-              className={({ isActive }) =>
-                clsx(
-                  'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors',
-                  isActive ? 'bg-indigo-600/15 text-indigo-500 dark:text-indigo-400 font-medium' : 't2 hover:t1 hover:bg-surface-2'
-                )
-              }
-            >
-              <Settings size={16} />
-              Settings
-            </NavLink>
-          </li>
+          {isAdmin ? (
+            <li>
+              <NavLink
+                to="/admin/clients"
+                className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors t2 hover:t1 hover:bg-surface-2"
+              >
+                <ArrowLeft size={16} />
+                Back to Admin
+              </NavLink>
+            </li>
+          ) : (
+            <li>
+              <NavLink
+                to="/settings"
+                className={({ isActive }) =>
+                  clsx(
+                    'flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors',
+                    isActive ? 'bg-indigo-600/15 text-indigo-500 dark:text-indigo-400 font-medium' : 't2 hover:t1 hover:bg-surface-2'
+                  )
+                }
+              >
+                <Settings size={16} />
+                Settings
+              </NavLink>
+            </li>
+          )}
         </ul>
       </nav>
 

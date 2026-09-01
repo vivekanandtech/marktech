@@ -9,15 +9,19 @@ import {
   dbGetAllGoogleSessions, dbUpdateGoogleCustomer,
 } from '../services/google'
 import { previousWindow } from '../lib/dateWindows'
+import { assertClientAccess, AuthUser } from '../lib/auth-guard'
+import { clientExists } from '../lib/clients'
 
 // ─── Auth routes (public — registered under /auth) ───────────────────────────
 
 export async function googleAuthRoutes(app: FastifyInstance) {
 
-  // Step 1: Redirect to Google OAuth consent screen
-  app.get<{ Querystring: { clientId?: string } }>('/google', async (request, reply) => {
+  // Returns the Google consent-screen URL — see the matching comment on
+  // GET /meta for why this can't be a server-side redirect any more.
+  app.get<{ Querystring: { clientId?: string } }>('/google', async (request) => {
     const clientId = request.query.clientId ?? 'default'
-    return reply.redirect(getGoogleOAuthUrl(clientId))
+    assertClientAccess(request, clientId)
+    return { url: getGoogleOAuthUrl(clientId) }
   })
 
   // Step 2: Google redirects back here with ?code=xxx&state=clientId
@@ -34,6 +38,11 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       }
 
       const clientId = state ?? 'default'
+      if (!(await clientExists(clientId))) {
+        return reply.redirect(
+          `${FRONTEND}/settings?google=error&clientId=${encodeURIComponent(clientId)}&reason=unknown_client`
+        )
+      }
       try {
         const { accessToken, refreshToken, expiresIn } = await exchangeGoogleCode(code)
         const accessTokenExpiry = Date.now() + expiresIn * 1000
@@ -68,8 +77,9 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     }
   )
 
-  // Diagnostic — tests dev token + customer list without full OAuth
-  app.get<{ Querystring: { token?: string } }>('/google/diag', async (request) => {
+  // Diagnostic — tests dev token + customer list without full OAuth. Admin-only.
+  app.get<{ Querystring: { token?: string } }>('/google/diag', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Forbidden' })
     const accessToken = request.query.token ?? ''
     if (!accessToken) return { error: 'pass ?token=<access_token>' }
     const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? ''
@@ -86,6 +96,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   // Get connection status
   app.get<{ Querystring: { clientId?: string } }>('/google/status', async (request) => {
     const clientId = request.query.clientId ?? 'default'
+    assertClientAccess(request, clientId)
     // Check in-memory first, then fall back to DB
     const mem = googleTokenStore.get(clientId)
     let row: Awaited<ReturnType<typeof dbGetGoogleToken>> = null
@@ -100,8 +111,10 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     }
   })
 
-  // Return all active Google sessions — new browsers use this to auto-populate
-  app.get('/google/sessions', async () => {
+  // Returns every connected client's Google session — admin-only. (Phase 3
+  // replaces its purpose with a properly-scoped GET /api/clients.)
+  app.get('/google/sessions', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Forbidden' })
     try {
       const sessions = await dbGetAllGoogleSessions()
       return { sessions }
@@ -123,6 +136,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { clientId, customerId, customerName } = request.body
       if (!clientId || !customerId) return reply.code(400).send({ error: 'clientId and customerId required' })
+      assertClientAccess(request, clientId)
 
       // Update in-memory cache
       const cached = googleTokenStore.get(clientId)
@@ -136,6 +150,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   // Disconnect — clears memory + DB
   app.delete<{ Querystring: { clientId?: string } }>('/google/disconnect', async (request) => {
     const clientId = request.query.clientId ?? 'default'
+    assertClientAccess(request, clientId)
     googleTokenStore.delete(clientId)
     await dbDeleteGoogleToken(clientId).catch((err) =>
       app.log.error({ err: err.message }, 'Failed to delete Google token from DB')
@@ -170,6 +185,7 @@ export async function googleDataRoutes(app: FastifyInstance) {
     '/campaigns',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const auth = await resolveGoogleToken(clientId)
       if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
 
@@ -206,6 +222,7 @@ export async function googleDataRoutes(app: FastifyInstance) {
     '/ad-groups',
     async (request, reply) => {
       const { clientId = 'default', campaignId, dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const auth = await resolveGoogleToken(clientId)
       if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
 
@@ -286,6 +303,7 @@ export async function googleDataRoutes(app: FastifyInstance) {
     '/daily-insights',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const auth = await resolveGoogleToken(clientId)
       if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
 

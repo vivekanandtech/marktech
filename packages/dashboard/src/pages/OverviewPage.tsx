@@ -94,6 +94,7 @@ export function OverviewPage() {
   const currentClient = clients.find((c) => c.id === clientId)
   const connected = currentClient?.meta.connected ?? false
   const metaAdAccountId = currentClient?.metaAdAccountId ?? null
+  const thresholds = currentClient?.settings.thresholds
   const [tagFilter, setTagFilter] = useState<ActionTagFilter>('all')
 
   // Live Meta hooks — all are no-ops when not connected
@@ -240,7 +241,7 @@ export function OverviewPage() {
           improving={overview?.connected.shopify ? attributedCPRDelta <= 0 : mockMetrics.cpa.improving}
           icon={<Layers size={15} />}
           metricId={overview?.connected.shopify ? 'attributedCPR' : undefined}
-          status={overview?.connected.shopify ? getMetricStatus('attributedCPR', attributedCPR) : null}
+          status={overview?.connected.shopify ? getMetricStatus('attributedCPR', attributedCPR, thresholds) : null}
         />
       </div>
 
@@ -269,21 +270,21 @@ export function OverviewPage() {
           value={overview ? formatRoas(mer) : '—'}
           change={merDelta} improving={merDelta >= 0}
           metricId="mer"
-          status={overview ? getMetricStatus('mer', mer) : null}
+          status={overview ? getMetricStatus('mer', mer, thresholds) : null}
         />
         <MetricCard
           size="sm" label="New-Cust CAC"
           value={nCACAvailable ? formatCurrency(nCAC) : '—'}
           change={nCACAvailable ? nCACDelta : 0} improving={nCACAvailable ? nCACDelta <= 0 : true}
           metricId="nCAC"
-          status={nCACAvailable ? getMetricStatus('nCAC', nCAC) : null}
+          status={nCACAvailable ? getMetricStatus('nCAC', nCAC, thresholds) : null}
         />
         <MetricCard
           size="sm" label="Platform Over-claim"
           value={overview && overview.current.shopifyNetRevenue > 0 ? `${overClaim.toFixed(1)}×` : '—'}
           change={0} improving
           metricId="overClaimMultiplier"
-          status={overview && overview.current.shopifyNetRevenue > 0 ? getMetricStatus('overClaimMultiplier', overClaim) : null}
+          status={overview && overview.current.shopifyNetRevenue > 0 ? getMetricStatus('overClaimMultiplier', overClaim, thresholds) : null}
         />
       </div>
       {overview && !nCACAvailable && overview.connected.shopify && (

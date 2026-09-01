@@ -1,12 +1,14 @@
 import { FastifyInstance } from 'fastify'
 import { computeOverviewMetrics, computeReconciliationTrend } from '../services/metrics-engine'
 import { METRIC_DEFINITIONS, METRIC_SOURCES } from '../lib/metric-definitions'
+import { assertClientAccess } from '../lib/auth-guard'
 
 export async function metricsRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { clientId?: string; dateRange?: string; country?: string } }>(
     '/overview',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D', country } = request.query
+      assertClientAccess(request, clientId)
       try {
         const data = await computeOverviewMetrics(clientId, dateRange, country)
         return data
@@ -26,6 +28,7 @@ export async function metricsRoutes(app: FastifyInstance) {
     '/reconciliation',
     async (request, reply) => {
       const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       try {
         const data = await computeReconciliationTrend(clientId, dateRange)
         return data

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { apiFetch } from '@/lib/api'
 
 export interface AdAccount {
   id: string
@@ -61,6 +62,16 @@ const EMPTY_GOOGLE: GoogleConnection = {
   customers: [],
 }
 
+export interface ThresholdSetting { good: number; bad: number }
+export interface ClientSettings {
+  thresholds?: Record<string, ThresholdSetting>
+  // The client's own Shopify app, so their store can be onboarded via its
+  // own distributable install link instead of sharing one global app across
+  // every client. clientSecret is write-only — the server redacts it on every
+  // read, so it's never present here once saved.
+  shopifyApp?: { clientId: string; configured: boolean }
+}
+
 export interface Client {
   id: string
   name: string
@@ -72,33 +83,28 @@ export interface Client {
   meta: MetaConnection             // this client's own Meta connection
   shopify: ShopifyConnection       // this client's Shopify store connection
   google: GoogleConnection         // this client's Google Ads connection
+  settings: ClientSettings
 }
 
-const COLORS = [
-  '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#3b82f6',
-  '#8b5cf6', '#06b6d4', '#f97316', '#84cc16', '#ec4899',
-]
 
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .map((w) => w[0].toUpperCase())
-    .slice(0, 2)
-    .join('')
-}
-
-function pickColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return COLORS[Math.abs(hash) % COLORS.length]
+export interface ServerClient {
+  id: string
+  name: string
+  industry: string
+  logoInitials: string
+  logoColor: string
+  settings: ClientSettings
 }
 
 interface ClientStore {
   clients: Client[]
-  addClient: (name: string, industry: string) => Client
-  removeClient: (id: string) => void
-  updateClient: (id: string, updates: Pick<Client, 'name' | 'industry'>) => void
+  // Replaces the client list with the server's scoped, authoritative answer
+  // (admin: every client; client_user: just their own) — preserves each
+  // client's already-known connection sub-state, since that isn't part of
+  // this payload. Any local client absent from the server list is dropped.
+  setClientsFromServer: (serverClients: ServerClient[]) => void
+  createClient: (name: string, industry: string) => Promise<Client>
+  setClientSettings: (clientId: string, settings: ClientSettings) => void
   assignAdAccount: (clientId: string, adAccountId: string | null) => void
   setMetaConnected: (clientId: string, data: { metaUserId: string; adAccounts: AdAccount[]; expiresAt: string; accessToken?: string }) => void
   setMetaDisconnected: (clientId: string) => void
@@ -108,15 +114,6 @@ interface ClientStore {
   setShopifyDisconnected: (clientId: string) => void
   setGoogleConnected: (clientId: string, data: { customerId: string; customerName: string; customers: GoogleCustomer[] }) => void
   setGoogleDisconnected: (clientId: string) => void
-  adoptGoogleSession: (session: { clientId: string; customerId: string | null; customerName: string | null; customers: GoogleCustomer[] }) => void
-  adoptSession: (session: {
-    clientId: string
-    metaUserId: string
-    adAccounts: AdAccount[]
-    selectedAdAccountId: string | null
-    accessToken: string
-    expiresAt: string
-  }) => void
 }
 
 export const useClientStore = create<ClientStore>()(
@@ -124,33 +121,50 @@ export const useClientStore = create<ClientStore>()(
     (set, get) => ({
       clients: [],
 
-      addClient: (name, industry) => {
+      setClientsFromServer: (serverClients) => {
+        const existing = get().clients
+        set({
+          clients: serverClients.map((sc) => {
+            const local = existing.find((c) => c.id === sc.id)
+            return {
+              id: sc.id,
+              name: sc.name,
+              industry: sc.industry,
+              logoInitials: sc.logoInitials,
+              logoColor: sc.logoColor,
+              createdAt: local?.createdAt ?? new Date().toISOString(),
+              metaAdAccountId: local?.metaAdAccountId ?? null,
+              meta: local?.meta ?? { ...EMPTY_META },
+              shopify: local?.shopify ?? { ...EMPTY_SHOPIFY },
+              google: local?.google ?? { ...EMPTY_GOOGLE },
+              settings: sc.settings ?? {},
+            }
+          }),
+        })
+      },
+
+      createClient: async (name, industry) => {
+        const res = await apiFetch('/api/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, industry }),
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
         const client: Client = {
-          id: `client_${Date.now()}`,
-          name: name.trim(),
-          industry: industry.trim() || 'Other',
-          logoInitials: initials(name),
-          logoColor: pickColor(name),
-          createdAt: new Date().toISOString(),
-          metaAdAccountId: null,
-          meta: { ...EMPTY_META },
-          shopify: { ...EMPTY_SHOPIFY },
-          google: { ...EMPTY_GOOGLE },
+          id: data.id, name: data.name, industry: data.industry || 'Other',
+          logoInitials: data.logoInitials, logoColor: data.logoColor,
+          createdAt: new Date().toISOString(), metaAdAccountId: null,
+          meta: { ...EMPTY_META }, shopify: { ...EMPTY_SHOPIFY }, google: { ...EMPTY_GOOGLE },
+          settings: {},
         }
         set({ clients: [...get().clients, client] })
         return client
       },
 
-      removeClient: (id) =>
-        set({ clients: get().clients.filter((c) => c.id !== id) }),
-
-      updateClient: (id, updates) =>
+      setClientSettings: (clientId, settings) =>
         set({
-          clients: get().clients.map((c) =>
-            c.id === id
-              ? { ...c, ...updates, logoInitials: initials(updates.name), logoColor: pickColor(updates.name) }
-              : c
-          ),
+          clients: get().clients.map((c) => (c.id === clientId ? { ...c, settings } : c)),
         }),
 
       assignAdAccount: (clientId, adAccountId) =>
@@ -253,98 +267,10 @@ export const useClientStore = create<ClientStore>()(
           ),
         }),
 
-      adoptGoogleSession: (session) => {
-        const clients = get().clients
-        const existing = clients.find((c) => c.id === session.clientId)
-        if (existing) {
-          set({
-            clients: clients.map((c) =>
-              c.id === session.clientId
-                ? { ...c, google: { connected: true, customerId: session.customerId, customerName: session.customerName, customers: session.customers } }
-                : c
-            ),
-          })
-        }
-      },
-
-      // Adopt a session discovered from the server — used when a new browser
-      // has no local clients but the DB has an active Meta connection.
-      adoptSession: (session: {
-        clientId: string
-        metaUserId: string
-        adAccounts: AdAccount[]
-        selectedAdAccountId: string | null
-        accessToken: string
-        expiresAt: string
-      }) => {
-        const clients = get().clients
-        // Match on clientId first; fall back to metaUserId to avoid creating
-        // duplicate cards when the same Meta user has multiple DB rows.
-        const existing =
-          clients.find((c) => c.id === session.clientId) ??
-          clients.find((c) => c.meta.metaUserId === session.metaUserId)
-
-        const pickedId =
-          session.selectedAdAccountId ??
-          existing?.metaAdAccountId ??
-          session.adAccounts[0]?.id ??
-          null
-
-        // Preserve the user's existing account selection (stored in localStorage).
-        // Only override if: the server has a persisted selectedAdAccountId (DB knows better),
-        // or the user has never made a selection yet (null).
-        const enabledIds = session.selectedAdAccountId
-          ? [session.selectedAdAccountId]
-          : (existing?.meta.enabledAdAccountIds ?? (pickedId ? [pickedId] : null))
-
-        // Keep existing ad accounts if the incoming session has none — prevents
-        // the in-memory DB-fallback (which has no account names) from wiping
-        // account data that was already loaded from the OAuth URL params.
-        const resolvedAccounts = session.adAccounts.length > 0
-          ? session.adAccounts
-          : (existing?.meta.adAccounts ?? [])
-
-        const metaPayload = {
-          connected: true,
-          metaUserId: session.metaUserId,
-          accessToken: session.accessToken,
-          adAccounts: resolvedAccounts,
-          enabledAdAccountIds: enabledIds,
-          expiresAt: session.expiresAt,
-        }
-
-        if (existing) {
-          set({
-            clients: clients.map((c) => {
-              if (c.id !== existing.id) return c
-              return { ...c, id: session.clientId, metaAdAccountId: pickedId, meta: metaPayload }
-            }),
-          })
-        } else {
-          const firstName = session.adAccounts[0]?.name ?? 'Client'
-          set({
-            clients: [
-              ...clients,
-              {
-                id: session.clientId,
-                name: firstName,
-                industry: 'Other',
-                logoInitials: initials(firstName),
-                logoColor: pickColor(firstName),
-                createdAt: new Date().toISOString(),
-                metaAdAccountId: pickedId,
-                meta: metaPayload,
-                shopify: { ...EMPTY_SHOPIFY },
-                google: { ...EMPTY_GOOGLE },
-              },
-            ],
-          })
-        }
-      },
     }),
     {
       name: 'marktech-clients',
-      version: 3,
+      version: 4,
       migrate: (persisted: any) => {
         if (!persisted?.clients) return persisted
         return {
@@ -355,6 +281,7 @@ export const useClientStore = create<ClientStore>()(
             meta: c.meta ?? { ...EMPTY_META },
             shopify: c.shopify ?? { ...EMPTY_SHOPIFY },
             google: c.google ?? { ...EMPTY_GOOGLE },
+            settings: c.settings ?? {},
           })),
         }
       },

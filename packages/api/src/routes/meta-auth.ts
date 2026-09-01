@@ -6,15 +6,21 @@ import {
   dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions, dbDeleteToken,
 } from '../services/meta'
 import { previousWindow } from '../lib/dateWindows'
+import { assertClientAccess, AuthUser } from '../lib/auth-guard'
+import { clientExists } from '../lib/clients'
 
 export async function metaAuthRoutes(app: FastifyInstance) {
 
-  // Step 1: Redirect client to Meta OAuth consent screen
-  // Frontend calls: GET /auth/meta?clientId=xxx
-  app.get<{ Querystring: { clientId?: string } }>('/meta', async (request, reply) => {
+  // Returns the Meta consent-screen URL — frontend fetches this (with its
+  // Authorization header) then does window.location.href = url itself. Can't
+  // be a plain <a href> / server redirect any more: this route requires a
+  // valid JWT (admin always allowed; a client_user only for a reconnect of
+  // their own already-established client), and a raw browser navigation has
+  // no way to attach that header.
+  app.get<{ Querystring: { clientId?: string } }>('/meta', async (request) => {
     const clientId = request.query.clientId ?? 'default'
-    const url = getOAuthUrl(clientId)
-    return reply.redirect(url)
+    assertClientAccess(request, clientId)
+    return { url: getOAuthUrl(clientId) }
   })
 
   // Step 2: Meta redirects back here with ?code=xxx&state=clientId
@@ -26,6 +32,10 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
       if (error || !code) {
         return reply.redirect(`${FRONTEND}/settings?meta=error&clientId=${encodeURIComponent(state ?? 'default')}&reason=${error ?? 'no_code'}`)
+      }
+
+      if (!(await clientExists(state ?? ''))) {
+        return reply.redirect(`${FRONTEND}/settings?meta=error&clientId=${encodeURIComponent(state ?? 'default')}&reason=unknown_client`)
       }
 
       try {
@@ -84,6 +94,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
   // Get connection status for a client — checks memory then DB
   app.get<{ Querystring: { clientId?: string } }>('/meta/status', async (request) => {
     const clientId = request.query.clientId ?? 'default'
+    assertClientAccess(request, clientId)
 
     // 1. Try in-memory store
     let stored = tokenStore.get(clientId)
@@ -125,9 +136,12 @@ export async function metaAuthRoutes(app: FastifyInstance) {
     }
   })
 
-  // Return all active Meta sessions — used by new browsers to auto-populate
-  // the client store without requiring re-authentication.
-  app.get('/meta/sessions', async () => {
+  // Returns every connected client's Meta session, including access tokens —
+  // admin-only. (Previously public with no clientId param at all, meaning
+  // anyone could dump every client's tokens; Phase 3 replaces its purpose
+  // with a properly-scoped GET /api/clients and this route can be removed.)
+  app.get('/meta/sessions', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Forbidden' })
     try {
       const sessions = await dbGetAllSessions()
       return { sessions }
@@ -153,6 +167,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { clientId, adAccountId } = request.body
       if (!clientId || !adAccountId) return reply.code(400).send({ error: 'clientId and adAccountId required' })
+      assertClientAccess(request, clientId)
       try { await dbUpdateSelectedAccount(clientId, adAccountId) } catch { /* DB unavailable — no-op */ }
       return { ok: true }
     }
@@ -163,6 +178,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
   // the next session-discovery pass since its row would still be there.
   app.delete<{ Querystring: { clientId?: string } }>('/meta/disconnect', async (request) => {
     const clientId = request.query.clientId ?? 'default'
+    assertClientAccess(request, clientId)
     tokenStore.delete(clientId)
     await dbDeleteToken(clientId).catch((err) =>
       app.log.error({ err: err.message, clientId }, 'Failed to delete Meta token from DB')
@@ -196,6 +212,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     Querystring: { clientId?: string; adAccountId: string; dateRange?: string; level?: string }
   }>('/insights', async (request, reply) => {
     const { clientId = 'default', adAccountId, dateRange = '30D', level = 'campaign' } = request.query
+    assertClientAccess(request, clientId)
     const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
     if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
     const insights = await getCampaignInsights(adAccountId, token, dateRange, level)
@@ -206,6 +223,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     '/campaigns',
     async (request, reply) => {
       const { clientId = 'default', adAccountId, dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
@@ -250,6 +268,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     '/campaign-detail',
     async (request, reply) => {
       const { clientId = 'default', campaignId, dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       try {
@@ -268,6 +287,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     '/top-ads',
     async (request, reply) => {
       const { clientId = 'default', adAccountId, limit = '25' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       try {
@@ -285,6 +305,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
     '/daily-insights',
     async (request, reply) => {
       const { clientId = 'default', adAccountId, dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       try {

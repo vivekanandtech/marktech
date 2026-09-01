@@ -4,12 +4,14 @@ import { ReconciliationChart } from '@/components/charts/ReconciliationChart'
 import { useReconciliationTrend } from '@/hooks/useReconciliationTrend'
 import { getMetricStatus, STATUS_DOT_CLASS } from '@/lib/metric-thresholds'
 import { formatCurrency } from '@/lib/formatters'
+import { useFilterStore } from '@/store/filterStore'
+import { useClientStore } from '@/store/clientStore'
 import type { OverviewMetricsResponse } from '@/store/metricsDataStore'
 
 function ChannelClaimCard({
-  label, claimed, truth, overClaim, metricId,
-}: { label: string; claimed: number; truth: number; overClaim: number; metricId: string }) {
-  const status = getMetricStatus('overClaimMultiplier', overClaim)
+  label, claimed, truth, overClaim, metricId, thresholds,
+}: { label: string; claimed: number; truth: number; overClaim: number; metricId: string; thresholds?: Record<string, { good: number; bad: number }> }) {
+  const status = getMetricStatus('overClaimMultiplier', overClaim, thresholds)
   return (
     <div className="rounded-xl border border-theme p-3.5 flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -39,6 +41,8 @@ function EmptyChannelCard({ label }: { label: string }) {
 export function ReconciliationSection({ overview }: { overview: OverviewMetricsResponse | null }) {
   const { data: trend } = useReconciliationTrend()
   const current = overview?.current
+  const clientId = useFilterStore((s) => s.clientId)
+  const thresholds = useClientStore((s) => s.clients.find((c) => c.id === clientId)?.settings.thresholds)
 
   if (!overview || !overview.connected.shopify) return null
 
@@ -57,6 +61,7 @@ export function ReconciliationSection({ overview }: { overview: OverviewMetricsR
             truth={current?.metaChannelNetRevenue ?? 0}
             overClaim={current?.metaOverClaimMultiplier ?? 0}
             metricId="metaOverClaimMultiplier"
+            thresholds={thresholds}
           />
         ) : <EmptyChannelCard label="Meta" />}
 
@@ -67,6 +72,7 @@ export function ReconciliationSection({ overview }: { overview: OverviewMetricsR
             truth={current?.googleChannelNetRevenue ?? 0}
             overClaim={current?.googleOverClaimMultiplier ?? 0}
             metricId="googleOverClaimMultiplier"
+            thresholds={thresholds}
           />
         ) : <EmptyChannelCard label="Google" />}
       </div>
