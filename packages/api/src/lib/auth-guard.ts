@@ -20,6 +20,9 @@ export class ForbiddenError extends Error {
 export function assertClientAccess(request: FastifyRequest, clientId: string): void {
   const user = request.user as AuthUser
   if (user.role === 'admin') return
-  if (user.clientIds.includes(clientId)) return
+  // A token signed before clientIds existed (the old single-hardcoded-login
+  // system) decodes fine — same JWT secret — but carries none of these
+  // claims. Treat that as unauthorized rather than crashing on .includes().
+  if (Array.isArray(user.clientIds) && user.clientIds.includes(clientId)) return
   throw new ForbiddenError(`Not authorized for client ${clientId}`)
 }

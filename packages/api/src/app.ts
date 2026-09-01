@@ -55,6 +55,18 @@ export function buildApp() {
 
     try {
       await request.jwtVerify()
+      // A token signed before this shape existed (the old single-hardcoded-
+      // login system: {userId, tenantId, role: 'agency_admin'}) still passes
+      // jwtVerify — same secret — but has neither a valid role nor clientIds.
+      // Reject it as a clean 401 (triggers the frontend's existing
+      // logout-on-401 handling) rather than letting it trickle into route
+      // handlers as confusing 403s or crashes on missing fields.
+      const user = request.user as any
+      const validRole = user?.role === 'admin' || user?.role === 'client_user'
+      const validClientIds = user?.role === 'admin' || Array.isArray(user?.clientIds)
+      if (!validRole || !validClientIds) {
+        return reply.code(401).send({ error: 'Session from a previous version — please log in again' })
+      }
     } catch {
       reply.code(401).send({ error: 'Unauthorized' })
     }

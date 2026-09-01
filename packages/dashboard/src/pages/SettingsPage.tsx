@@ -38,7 +38,7 @@ export function SettingsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oauthResult, shopifyResult, googleResult])
 
-  const myClients = clients.filter((c) => user?.clientIds.includes(c.id))
+  const myClients = clients.filter((c) => user?.clientIds?.includes(c.id))
 
   return (
     <div className="space-y-6 animate-fade-in max-w-2xl">
