@@ -6,8 +6,8 @@ import { API } from '@/lib/api'
 
 export function LoginPage() {
   const { isAuthenticated, login } = useAuthStore()
-  const [email, setEmail] = useState('admin@velora.com')
-  const [password, setPassword] = useState('demo1234')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [showPwd, setShowPwd] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -132,10 +132,6 @@ export function LoginPage() {
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
-
-          <p className="text-center text-xs t3 mt-4">
-            Demo: admin@velora.com · demo1234
-          </p>
         </div>
       </div>
     </div>

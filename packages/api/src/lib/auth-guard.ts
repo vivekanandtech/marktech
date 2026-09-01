@@ -8,6 +8,19 @@ export interface AuthUser {
   clientIds: string[]
 }
 
+// A JWT signed before this shape existed (the old single-hardcoded-login
+// system: {userId, tenantId, role: 'agency_admin'}) still passes jwtVerify —
+// same secret — but has neither a valid role nor clientIds. Used at the
+// request hook to reject that shape as a clean 401 ("please log in again")
+// rather than letting it trickle into route handlers as confusing 403s or
+// crashes on missing fields.
+export function isValidAuthUser(user: unknown): user is AuthUser {
+  const u = user as any
+  const validRole = u?.role === 'admin' || u?.role === 'client_user'
+  const validClientIds = u?.role === 'admin' || Array.isArray(u?.clientIds)
+  return validRole && validClientIds
+}
+
 // A 403 that route handlers can just `throw` — Fastify's default error
 // handler serializes it with the right status code.
 export class ForbiddenError extends Error {
