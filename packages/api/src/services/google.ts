@@ -109,11 +109,22 @@ export async function getValidAccessToken(clientId: string): Promise<string | nu
   const stored = googleTokenStore.get(clientId)!
   // Refresh if expired or within 2 minutes of expiry
   if (!stored.accessToken || Date.now() >= stored.accessTokenExpiry - 2 * 60 * 1000) {
-    const { accessToken, expiresIn } = await refreshGoogleToken(stored.refreshToken)
-    const expiry = Date.now() + expiresIn * 1000
-    googleTokenStore.set(clientId, { ...stored, accessToken, accessTokenExpiry: expiry })
-    await dbUpdateGoogleAccessToken(clientId, accessToken, expiry).catch(() => {})
-    return accessToken
+    // A revoked/expired refresh token (invalid_grant) makes refreshGoogleToken
+    // throw — left uncaught, that was escaping every route that calls this
+    // (campaigns, ad-groups, account insights, Overview, Products) as a bare
+    // 500 "Internal Server Error" instead of the same "not connected" signal
+    // callers already handle everywhere else. Treat a failed refresh the same
+    // as no token at all.
+    try {
+      const { accessToken, expiresIn } = await refreshGoogleToken(stored.refreshToken)
+      const expiry = Date.now() + expiresIn * 1000
+      googleTokenStore.set(clientId, { ...stored, accessToken, accessTokenExpiry: expiry })
+      await dbUpdateGoogleAccessToken(clientId, accessToken, expiry).catch(() => {})
+      return accessToken
+    } catch (err: any) {
+      console.error(`[google] token refresh failed for client ${clientId}: ${err.message}`)
+      return null
+    }
   }
 
   return stored.accessToken
