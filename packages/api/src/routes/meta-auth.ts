@@ -3,7 +3,7 @@ import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
   getCampaignInsights, getCampaignInsightsForWindow, getCampaigns, getAccountInsights, getCampaignDetail, getAdSetAdsDetail, getTopAds, getDailyInsights,
-  dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions, dbDeleteToken,
+  dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbUpdateAdAccounts, dbGetAllSessions, dbDeleteToken,
 } from '../services/meta'
 import { previousWindow } from '../lib/dateWindows'
 import { assertClientAccess, AuthUser } from '../lib/auth-guard'
@@ -121,13 +121,26 @@ export async function metaAuthRoutes(app: FastifyInstance) {
       return { connected: false, reason: 'token_expired' }
     }
 
-    // Use cached ad accounts from DB; fall back to a live Meta call if DB is down
     let dbRow: Awaited<ReturnType<typeof dbGetToken>> = null
     try { dbRow = await dbGetToken(clientId) } catch { /* DB unavailable */ }
 
-    const adAccounts = dbRow?.adAccounts?.length
-      ? dbRow.adAccounts
-      : await getAdAccounts(stored.accessToken)
+    // Always re-fetch live — this is a cheap call (id/name/currency/status
+    // only, no insights or creative fields) — so a newly-granted ad account
+    // in Meta Business Manager shows up on the next status check instead of
+    // being stuck behind a cache that previously only ever refreshed at the
+    // moment of the original OAuth connect. Only fall back to the last-known
+    // DB list if the live call itself fails (token hiccup, Meta API down),
+    // and never let a fallback silently mask a real problem from the caller.
+    let adAccounts = dbRow?.adAccounts ?? []
+    try {
+      const liveAccounts = await getAdAccounts(stored.accessToken)
+      adAccounts = liveAccounts
+      dbUpdateAdAccounts(clientId, liveAccounts).catch((err) =>
+        app.log.error({ err: err.message, clientId }, 'Failed to persist refreshed Meta ad accounts')
+      )
+    } catch (err: any) {
+      app.log.error({ err: err.message, clientId }, 'Live getAdAccounts failed — falling back to cached list')
+    }
 
     return {
       connected: true,

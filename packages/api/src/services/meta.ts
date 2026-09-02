@@ -57,6 +57,21 @@ export async function dbUpdateSelectedAccount(clientId: string, adAccountId: str
   )
 }
 
+// Refreshes the cached ad account list after a live re-fetch (see /meta/status)
+// so a newly-granted ad account in Meta Business Manager persists across
+// server restarts instead of only living in that one request's response.
+export async function dbUpdateAdAccounts(clientId: string, adAccounts: any[]): Promise<void> {
+  const existing = tokenStore.get(clientId)
+  if (existing) tokenStore.set(clientId, { ...existing, adAccounts, adAccountIds: adAccounts.map((a) => a.id) })
+
+  const db = getPool()
+  if (!db) return
+  await db.query(
+    `UPDATE meta_tokens SET ad_account_ids = $2, ad_accounts_json = $3, updated_at = NOW() WHERE client_id = $1`,
+    [clientId, adAccounts.map((a) => a.id), JSON.stringify(adAccounts)]
+  )
+}
+
 // Permanently removes a client's Meta connection. Used by both the explicit
 // "Disconnect" action and client deletion — without this, a removed client
 // resurfaces on the next session-discovery pass because the DB row survives.
