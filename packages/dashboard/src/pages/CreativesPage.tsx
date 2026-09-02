@@ -8,7 +8,7 @@ import { useClientStore } from '@/store/clientStore'
 import { useMetaCreatives } from '@/hooks/useMetaData'
 import { getCreatives } from '@/lib/mock-data'
 import { transformInsightMetrics, safeFloat, classifyCreativeFormat, CreativeFormat } from '@/lib/meta-transform'
-import { sumActionCount, sumActionValue, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
+import { maxActionCount, maxActionValue, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { useInsightsStore } from '@/store/insightsStore'
 
@@ -52,10 +52,10 @@ function computeFormatRollup(rawAds: any[]): FormatRollupRow[] {
     const format = classifyCreativeFormat(ad.creative)
     const t = totals[format]
     t.spend += safeFloat(ins?.spend)
-    t.conversionValue += sumActionValue(ins, PURCHASE_ACTION_TYPES)
+    t.conversionValue += maxActionValue(ins, PURCHASE_ACTION_TYPES)
     t.clicks += safeFloat(ins?.clicks)
     t.impressions += safeFloat(ins?.impressions)
-    t.conversions += sumActionCount(ins, PURCHASE_ACTION_TYPES)
+    t.conversions += maxActionCount(ins, PURCHASE_ACTION_TYPES)
     t.count += 1
   }
   return FORMAT_ROLLUP_ORDER.map((format) => {

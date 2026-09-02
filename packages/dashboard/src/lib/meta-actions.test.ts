@@ -1,20 +1,20 @@
 import { describe, it, expect } from 'vitest'
 import {
-  sumActionCount, sumActionValue, getFunnelCounts,
+  maxActionCount, maxActionValue, getFunnelCounts,
   PURCHASE_ACTION_TYPES, ADD_TO_CART_ACTION_TYPES,
 } from './meta-actions'
 
-describe('sumActionCount / sumActionValue', () => {
+describe('maxActionCount / maxActionValue', () => {
   it('filters by the exact action_type list passed in, nothing else', () => {
     const ins = { actions: [{ action_type: 'add_to_cart', value: '5' }, { action_type: 'purchase', value: '2' }] }
-    expect(sumActionCount(ins, ADD_TO_CART_ACTION_TYPES)).toBe(5)
-    expect(sumActionCount(ins, PURCHASE_ACTION_TYPES)).toBe(2)
+    expect(maxActionCount(ins, ADD_TO_CART_ACTION_TYPES)).toBe(5)
+    expect(maxActionCount(ins, PURCHASE_ACTION_TYPES)).toBe(2)
   })
 
   it('returns 0 for missing/malformed input rather than throwing', () => {
-    expect(sumActionCount(undefined, PURCHASE_ACTION_TYPES)).toBe(0)
-    expect(sumActionCount({ actions: null }, PURCHASE_ACTION_TYPES)).toBe(0)
-    expect(sumActionValue(undefined, PURCHASE_ACTION_TYPES)).toBe(0)
+    expect(maxActionCount(undefined, PURCHASE_ACTION_TYPES)).toBe(0)
+    expect(maxActionCount({ actions: null }, PURCHASE_ACTION_TYPES)).toBe(0)
+    expect(maxActionValue(undefined, PURCHASE_ACTION_TYPES)).toBe(0)
   })
 })
 

@@ -2,7 +2,7 @@ import { getPool } from '../lib/db'
 import { callStructured } from './llm-provider'
 import { currentWindow } from '../lib/dateWindows'
 import { computeOverviewMetrics } from './metrics-engine'
-import { metaReportedRevenueOf, sumActionCount, PURCHASE_ACTION_TYPES } from '../lib/meta-actions'
+import { metaReportedRevenueOf, maxActionCount, PURCHASE_ACTION_TYPES } from '../lib/meta-actions'
 import { dbGetToken as dbGetMetaToken, getCampaignInsightsForWindow } from './meta'
 import { dbGetGoogleToken, getValidAccessToken as getValidGoogleAccessToken, getGoogleCampaignsForWindow } from './google'
 
@@ -12,7 +12,7 @@ function summarizeMetaCampaign(raw: any) {
   const spend = parseFloat(raw.spend) || 0
   const revenue = metaReportedRevenueOf(raw)
   const roas = spend > 0 ? revenue / spend : 0
-  const purchases = sumActionCount(raw, PURCHASE_ACTION_TYPES)
+  const purchases = maxActionCount(raw, PURCHASE_ACTION_TYPES)
   const cpa = purchases > 0 ? spend / purchases : 0
   return {
     id: raw.campaign_id,

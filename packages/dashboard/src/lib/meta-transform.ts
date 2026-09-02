@@ -1,15 +1,15 @@
-import { PURCHASE_ACTION_TYPES, sumActionCount, sumActionValue, getFunnelCounts } from './meta-actions'
+import { PURCHASE_ACTION_TYPES, maxActionCount, maxActionValue, getFunnelCounts } from './meta-actions'
 export type { MetaFunnelCounts } from './meta-actions'
 
 export const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
 export const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
 
 function getConversions(ins: any): number {
-  return sumActionCount(ins, PURCHASE_ACTION_TYPES)
+  return maxActionCount(ins, PURCHASE_ACTION_TYPES)
 }
 
 function getConversionValue(ins: any): number {
-  return sumActionValue(ins, PURCHASE_ACTION_TYPES)
+  return maxActionValue(ins, PURCHASE_ACTION_TYPES)
 }
 
 // Per-metric period-over-period change, shown inline next to each metric value

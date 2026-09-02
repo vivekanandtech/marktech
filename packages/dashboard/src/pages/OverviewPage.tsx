@@ -30,7 +30,7 @@ import { getSummaryMetrics, getChartData, getFormatBreakdown, getCreatives, getA
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { transformInsightMetrics, transformMetaCampaign, safeFloat, safeInt, classifyCreativeFormat } from '@/lib/meta-transform'
 import { transformGoogleCampaign } from '@/lib/google-transform'
-import { sumActionCount, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
+import { maxActionCount, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
 import { InsightsPayload } from '@/store/insightsStore'
 
 // ─── Transform one daily-insights row to chart format ─────────────────────────
@@ -40,7 +40,7 @@ function toDailyChartRow(row: any) {
   const roas      = roasArr.length ? safeFloat(roasArr[0]?.value) : 0
   const purchaseValue = spend * roas
 
-  const purchases = sumActionCount(row, PURCHASE_ACTION_TYPES)
+  const purchases = maxActionCount(row, PURCHASE_ACTION_TYPES)
   const clicksN  = safeInt(row.clicks)
   const cvr      = clicksN > 0 && purchases > 0 ? (purchases / clicksN) * 100 : 0
 

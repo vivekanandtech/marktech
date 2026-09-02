@@ -12,14 +12,14 @@ export const ADD_PAYMENT_INFO_ACTION_TYPES = ['add_payment_info', 'offsite_conve
 const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
 const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
 
-export function sumActionCount(ins: any, actionTypes: string[]): number {
+export function maxActionCount(ins: any, actionTypes: string[]): number {
   const actions = Array.isArray(ins?.actions) ? ins.actions : []
   return actions
     .filter((a: any) => actionTypes.includes(a.action_type))
     .reduce((sum: number, a: any) => sum + safeInt(a.value), 0)
 }
 
-export function sumActionValue(ins: any, actionTypes: string[]): number {
+export function maxActionValue(ins: any, actionTypes: string[]): number {
   const values = Array.isArray(ins?.action_values) ? ins.action_values : []
   return values
     .filter((a: any) => actionTypes.includes(a.action_type))
@@ -35,9 +35,9 @@ export interface MetaFunnelCounts {
 
 export function getFunnelCounts(ins: any): MetaFunnelCounts {
   return {
-    addToCart: sumActionCount(ins, ADD_TO_CART_ACTION_TYPES),
-    initiateCheckout: sumActionCount(ins, INITIATE_CHECKOUT_ACTION_TYPES),
-    addPaymentInfo: sumActionCount(ins, ADD_PAYMENT_INFO_ACTION_TYPES),
-    purchases: sumActionCount(ins, PURCHASE_ACTION_TYPES),
+    addToCart: maxActionCount(ins, ADD_TO_CART_ACTION_TYPES),
+    initiateCheckout: maxActionCount(ins, INITIATE_CHECKOUT_ACTION_TYPES),
+    addPaymentInfo: maxActionCount(ins, ADD_PAYMENT_INFO_ACTION_TYPES),
+    purchases: maxActionCount(ins, PURCHASE_ACTION_TYPES),
   }
 }
