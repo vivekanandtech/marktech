@@ -21,7 +21,8 @@ export async function googleAuthRoutes(app: FastifyInstance) {
 
   // Returns the Google consent-screen URL — see the matching comment on
   // GET /meta for why this can't be a server-side redirect any more.
-  app.get<{ Querystring: { clientId?: string } }>('/google', async (request) => {
+  app.get<{ Querystring: { clientId?: string } }>('/google', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can connect Google Ads.' })
     const clientId = request.query.clientId ?? 'default'
     assertClientAccess(request, clientId)
     return { url: getGoogleOAuthUrl(clientId) }
@@ -137,6 +138,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   app.post<{ Body: { clientId: string; customerId: string; customerName: string } }>(
     '/google/select-customer',
     async (request, reply) => {
+      if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can connect Google Ads.' })
       const { clientId, customerId, customerName } = request.body
       if (!clientId || !customerId) return reply.code(400).send({ error: 'clientId and customerId required' })
       assertClientAccess(request, clientId)
@@ -151,7 +153,8 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   )
 
   // Disconnect — clears memory + DB
-  app.delete<{ Querystring: { clientId?: string } }>('/google/disconnect', async (request) => {
+  app.delete<{ Querystring: { clientId?: string } }>('/google/disconnect', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can disconnect Google Ads.' })
     const clientId = request.query.clientId ?? 'default'
     assertClientAccess(request, clientId)
     googleTokenStore.delete(clientId)

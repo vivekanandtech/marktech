@@ -60,6 +60,12 @@ export interface OverviewMetricsResponse {
   deltas: Record<string, number>
   countryBreakdown: { country: string; orders: number; netSales: number }[]
   connected: { meta: boolean; google: boolean; shopify: boolean }
+  // Set when a connected platform's API call for the *current* window failed
+  // (e.g. Meta's dev-tier usage throttle) rather than genuinely having zero
+  // spend — lets the frontend show "temporarily unavailable" instead of a
+  // silent, misleading 0. Previously this failure was swallowed into a plain
+  // 0 with no way to tell it apart from a real zero-spend period.
+  platformErrors: { meta: string | null; google: string | null }
 }
 
 // Pure calculation core — no I/O, takes already-fetched raw data and produces
@@ -131,10 +137,12 @@ async function computePeriodMetrics(
   meta: { accessToken: string; adAccountId: string } | null,
   google: { accessToken: string; customerId: string } | null,
   shopify: { shopDomain: string; accessToken: string } | null
-): Promise<PeriodMetrics> {
+): Promise<{ metrics: PeriodMetrics; errors: { meta: string | null; google: string | null } }> {
+  let metaError: string | null = null
+  let googleError: string | null = null
   const [metaIns, googleIns, ordersByChannel, metaSessions, totalSessions] = await Promise.all([
-    meta ? getMetaInsightsForWindow(meta.adAccountId, meta.accessToken, window).catch(() => null) : null,
-    google ? getGoogleAccountInsightsForWindow(google.customerId, google.accessToken, window).catch(() => null) : null,
+    meta ? getMetaInsightsForWindow(meta.adAccountId, meta.accessToken, window).catch((err) => { metaError = err.message; return null }) : null,
+    google ? getGoogleAccountInsightsForWindow(google.customerId, google.accessToken, window).catch((err) => { googleError = err.message; return null }) : null,
     shopify ? getOrdersByChannel(shopify.shopDomain, shopify.accessToken, window).catch(() => null) : null,
     shopify ? getMetaSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => 0) : 0,
     shopify ? getTotalSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => 0) : 0,
@@ -156,7 +164,7 @@ async function computePeriodMetrics(
     }
   }
 
-  return derivePeriodMetrics({
+  const metrics = derivePeriodMetrics({
     metaSpend: metaIns ? parseFloat(metaIns.spend) || 0 : 0,
     metaReportedRevenue: metaIns ? metaReportedRevenueOf(metaIns) : 0,
     googleSpend: googleIns ? (googleIns.costMicros ?? 0) / 1_000_000 : 0,
@@ -165,6 +173,7 @@ async function computePeriodMetrics(
     metaSessions, totalSessions,
     newCustomerCount, newCustomerDataAvailable, nCACSourceApproximate,
   })
+  return { metrics, errors: { meta: metaError, google: googleError } }
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000
@@ -217,10 +226,12 @@ export async function computeOverviewMetrics(
   const shopify = shopifyToken ? { shopDomain: shopifyToken.shopDomain, accessToken: shopifyToken.accessToken } : null
 
   const days = daysForRange(dateRange)
-  const [current, previous] = await Promise.all([
+  const [currentResult, previousResult] = await Promise.all([
     computePeriodMetrics(clientId, currentWindow(dateRange), days, meta, google, shopify),
     computePeriodMetrics(clientId, previousWindow(dateRange), days, meta, google, shopify),
   ])
+  const current = currentResult.metrics
+  const previous = previousResult.metrics
 
   const deltas: Record<string, number> = {}
   for (const key of Object.keys(current) as (keyof PeriodMetrics)[]) {
@@ -251,9 +262,16 @@ export async function computeOverviewMetrics(
   const response: OverviewMetricsResponse = {
     current, previous, deltas, countryBreakdown,
     connected: { meta: !!meta, google: !!google, shopify: !!shopify },
+    platformErrors: currentResult.errors,
   }
 
-  await setCached(cacheKey, response).catch(() => {})
+  // Don't cache a response built from a live platform-call failure — e.g.
+  // Meta's dev-tier usage throttle temporarily rejecting the insights call.
+  // Caching it would keep serving that same failure (and the misleading 0s
+  // it produces) for the full 10-minute window even after Meta recovers.
+  if (!currentResult.errors.meta && !currentResult.errors.google) {
+    await setCached(cacheKey, response).catch(() => {})
+  }
   return response
 }
 

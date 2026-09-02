@@ -6,7 +6,7 @@ import {
   getOrdersByChannel, getMetaSessions, getSalesByCountry, getAvailableCountries,
   getNewCustomerCount, getTodaySummary, getOrderSummary,
 } from '../services/shopify'
-import { assertClientAccess } from '../lib/auth-guard'
+import { assertClientAccess, AuthUser } from '../lib/auth-guard'
 import { clientExists } from '../lib/clients'
 import { currentWindow, previousWindow, pctChange } from '../lib/dateWindows'
 
@@ -20,6 +20,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { clientId?: string; shop?: string } }>(
     '/shopify',
     async (request, reply) => {
+      if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can connect Shopify.' })
       const { clientId = 'default', shop } = request.query
       assertClientAccess(request, clientId)
       if (!shop) return reply.code(400).send({ error: 'shop query param required (e.g. dohar-india)' })
@@ -93,6 +94,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
   app.post<{ Body: { clientId?: string; shopDomain: string; accessToken: string } }>(
     '/shopify/connect',
     async (request, reply) => {
+      if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can connect Shopify.' })
       const { clientId = 'default', shopDomain, accessToken } = request.body
       assertClientAccess(request, clientId)
       if (!shopDomain || !accessToken) {
@@ -126,6 +128,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
   app.post<{ Body: { clientId?: string; shopDomain: string } }>(
     '/shopify/connect-app',
     async (request, reply) => {
+      if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can connect Shopify.' })
       const { clientId = 'default', shopDomain } = request.body
       assertClientAccess(request, clientId)
       if (!shopDomain) return reply.code(400).send({ error: 'shopDomain is required' })
@@ -149,7 +152,8 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
   )
 
   // Disconnect — clears memory and DB row
-  app.delete<{ Querystring: { clientId?: string } }>('/shopify/disconnect', async (request) => {
+  app.delete<{ Querystring: { clientId?: string } }>('/shopify/disconnect', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can disconnect Shopify.' })
     const clientId = request.query.clientId ?? 'default'
     assertClientAccess(request, clientId)
     shopifyTokenStore.delete(clientId)

@@ -134,8 +134,8 @@ export function SettingsPage() {
               </div>
             </div>
             <ClientMetaSection client={c} canManage={false} />
-            <ClientShopifySection client={c} />
-            <ClientGoogleSection client={c} />
+            <ClientShopifySection client={c} canManage={false} />
+            <ClientGoogleSection client={c} canManage={false} />
           </div>
         ))
       )}

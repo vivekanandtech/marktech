@@ -240,7 +240,10 @@ export function ClientMetaSection({ client, canManage = true }: { client: Client
 
 // ─── Per-client Shopify connection ────────────────────────────────────────────
 // Uses Shopify Custom App Admin API tokens (shpat_...) — no OAuth needed.
-export function ClientShopifySection({ client }: { client: Client }) {
+// canManage gates connect/disconnect — connections are managed centrally by
+// admin; clients get a read-only view (same policy as Meta and Google, for
+// consistency rather than a platform-specific risk here).
+export function ClientShopifySection({ client, canManage = true }: { client: Client; canManage?: boolean }) {
   const { setShopifyConnected, setShopifyDisconnected } = useClientStore()
   const [shop, setShop] = useState('')
   const [token, setToken] = useState('')
@@ -282,6 +285,13 @@ export function ClientShopifySection({ client }: { client: Client }) {
   }
 
   if (!connected) {
+    if (!canManage) {
+      return (
+        <div className="mt-3 rounded-lg border border-dashed border-theme px-3 py-2.5">
+          <p className="text-xs t3">Shopify is not connected yet — contact your account manager to set this up.</p>
+        </div>
+      )
+    }
     return (
       <div className="mt-3 rounded-lg border border-dashed border-theme p-3 space-y-2.5">
         <div className="flex items-center gap-1.5">
@@ -337,20 +347,24 @@ export function ClientShopifySection({ client }: { client: Client }) {
         <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Shopify connected</span>
         <span className="text-xs t3">· {shopName ?? shopDomain}</span>
       </div>
-      <button
-        onClick={disconnect}
-        disabled={disconnecting}
-        className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50"
-      >
-        {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
-        Disconnect
-      </button>
+      {canManage && (
+        <button
+          onClick={disconnect}
+          disabled={disconnecting}
+          className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50"
+        >
+          {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+          Disconnect
+        </button>
+      )}
     </div>
   )
 }
 
 // ─── Per-client Google Ads connection ─────────────────────────────────────────
-export function ClientGoogleSection({ client }: { client: Client }) {
+// canManage gates connect/disconnect/customer-ID entry — same centralized-
+// admin policy as Meta and Shopify.
+export function ClientGoogleSection({ client, canManage = true }: { client: Client; canManage?: boolean }) {
   const { setGoogleConnected, setGoogleDisconnected } = useClientStore()
   const [disconnecting, setDisconnecting] = useState(false)
   const [connecting, setConnecting] = useState(false)
@@ -407,6 +421,13 @@ export function ClientGoogleSection({ client }: { client: Client }) {
   }
 
   if (!google.connected) {
+    if (!canManage) {
+      return (
+        <div className="mt-3 rounded-lg border border-dashed border-theme px-3 py-2.5">
+          <p className="text-xs t3">Google Ads is not connected yet — contact your account manager to set this up.</p>
+        </div>
+      )
+    }
     return (
       <div className="mt-3 rounded-lg border border-dashed border-theme p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-3">
@@ -434,6 +455,13 @@ export function ClientGoogleSection({ client }: { client: Client }) {
   }
 
   if (!google.customerId) {
+    if (!canManage) {
+      return (
+        <div className="mt-3 rounded-lg border border-dashed border-theme px-3 py-2.5">
+          <p className="text-xs t3">Google is connected — your account manager is finishing setup.</p>
+        </div>
+      )
+    }
     return (
       <div className="mt-3 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 space-y-2.5">
         <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Google authorised — enter your Customer ID</p>
@@ -480,14 +508,16 @@ export function ClientGoogleSection({ client }: { client: Client }) {
         <span className="text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">Google Ads connected</span>
         <span className="text-xs t3 truncate">· {google.customerName ?? google.customerId}</span>
       </div>
-      <button
-        onClick={disconnect}
-        disabled={disconnecting}
-        className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50 shrink-0"
-      >
-        {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
-        Disconnect
-      </button>
+      {canManage && (
+        <button
+          onClick={disconnect}
+          disabled={disconnecting}
+          className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50 shrink-0"
+        >
+          {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+          Disconnect
+        </button>
+      )}
     </div>
   )
 }

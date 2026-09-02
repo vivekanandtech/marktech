@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   IndianRupee, TrendingUp, Eye, MousePointer, Layers,
-  Globe, BarChart2, ChevronRight, ArrowRight, Loader2,
+  Globe, BarChart2, ChevronRight, ArrowRight, Loader2, AlertTriangle,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
@@ -167,6 +167,15 @@ export function OverviewPage() {
     blended: 'Shopify truth ÷ Meta + Google spend',
   }[platformView]
   const heroRoas = overview ? platformRoas[platformView] : roas
+  // A live Meta/Google API failure (e.g. Meta's usage throttle) makes
+  // metaRoas/googleRoas come back as a plain 0 — indistinguishable from a
+  // real zero-spend period unless we check platformErrors directly. Surface
+  // it explicitly instead of silently rendering "–" like a genuine zero.
+  const heroRoasError = overview?.platformErrors
+    ? (platformView === 'meta' ? overview.platformErrors.meta
+      : platformView === 'google' ? overview.platformErrors.google
+      : overview.platformErrors.meta || overview.platformErrors.google)
+    : null
   const platformRoasDelta = {
     meta: overview?.deltas.metaRoas ?? 0,
     google: overview?.deltas.googleRoas ?? 0,
@@ -306,13 +315,20 @@ export function OverviewPage() {
               )}
             </div>
             <div>
-              <p className="text-4xl font-bold tracking-tight text-gradient">{formatRoas(overview ? heroRoas : roas)}</p>
+              <p className="text-4xl font-bold tracking-tight text-gradient">{heroRoasError ? '–' : formatRoas(overview ? heroRoas : roas)}</p>
               <p className="text-xs t3 mt-0.5">{overview ? heroRoasSubtitle : (connected ? 'Facebook & Instagram' : 'across Meta + Google')}</p>
             </div>
-            <div className="flex items-center gap-1.5">
-              <TrendBadge change={heroRoasDelta} improving={heroRoasDelta >= 0} />
-              <span className="text-[11px] t3">vs prev period</span>
-            </div>
+            {heroRoasError ? (
+              <p className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                <AlertTriangle size={12} className="shrink-0" />
+                Temporarily unavailable — retrying automatically
+              </p>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <TrendBadge change={heroRoasDelta} improving={heroRoasDelta >= 0} />
+                <span className="text-[11px] t3">vs prev period</span>
+              </div>
+            )}
           </div>
         </div>
         <MetricCard label="Ad Spend" value={formatCurrency(spend)} change={connected ? 0 : mockMetrics.adSpend.change} improving={mockMetrics.adSpend.improving} icon={<IndianRupee size={15} />} />

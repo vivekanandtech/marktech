@@ -38,6 +38,10 @@ export interface OverviewMetricsResponse {
   deltas: Record<string, number>
   countryBreakdown: { country: string; orders: number; netSales: number }[]
   connected: { meta: boolean; google: boolean; shopify: boolean }
+  // Set when a connected platform's live API call failed for this load (e.g.
+  // Meta's usage throttle) — distinguishes "temporarily unavailable" from a
+  // real zero, which current.metaRoas/googleRoas can't do on its own.
+  platformErrors: { meta: string | null; google: string | null }
 }
 
 export interface ReconciliationDay {
@@ -85,7 +89,12 @@ export const useMetricsDataStore = create<MetricsDataStore>((set, get) => ({
 
   isFresh: (key) => {
     const entry = get().overview[key]
-    return !!entry && !entry.loading && !entry.error &&
+    // A response can succeed (no top-level entry.error) while still carrying
+    // a platform-specific failure (e.g. Meta's usage throttle) — treat that
+    // as not-fresh too, so the next visit actually retries instead of
+    // sitting on the same known-bad numbers for the full 5-minute window.
+    const hasPlatformError = !!(entry?.data?.platformErrors?.meta || entry?.data?.platformErrors?.google)
+    return !!entry && !entry.loading && !entry.error && !hasPlatformError &&
       entry.fetchedAt > 0 && Date.now() - entry.fetchedAt < STALE_MS
   },
 
