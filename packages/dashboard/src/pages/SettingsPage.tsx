@@ -133,7 +133,7 @@ export function SettingsPage() {
                 {c.industry && <p className="text-xs t3">{c.industry}</p>}
               </div>
             </div>
-            <ClientMetaSection client={c} />
+            <ClientMetaSection client={c} canManage={false} />
             <ClientShopifySection client={c} />
             <ClientGoogleSection client={c} />
           </div>

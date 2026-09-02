@@ -96,7 +96,13 @@ function AdAccountSelector({ client }: { client: Client }) {
 }
 
 // ─── Per-client Meta connection ────────────────────────────────────────────────
-export function ClientMetaSection({ client }: { client: Client }) {
+// canManage gates connect/disconnect/edit-accounts — the Meta OAuth flow
+// lists every ad account the connecting login can see, which under this
+// agency's shared Business Manager identity means every client's account
+// becomes visible to whoever completes it. Admin panel passes true; the
+// client-facing Settings page passes false so clients only ever see their
+// own already-assigned account, read-only.
+export function ClientMetaSection({ client, canManage = true }: { client: Client; canManage?: boolean }) {
   const { setMetaDisconnected, reopenAdAccountSelector, assignAdAccount } = useClientStore()
   const [disconnecting, setDisconnecting] = useState(false)
   const [connecting, setConnecting] = useState(false)
@@ -130,23 +136,36 @@ export function ClientMetaSection({ client }: { client: Client }) {
   if (!connected) {
     return (
       <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-dashed border-theme px-3 py-2.5">
-        <p className="text-xs t3">Connect this client's own Meta account to pull their live campaign data.</p>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <button
-            onClick={connect}
-            disabled={connecting}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#1877F2] hover:bg-[#166fe5] disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 transition-colors"
-          >
-            {connecting ? <Loader2 size={12} className="animate-spin" /> : <Link2 size={12} />}
-            Connect Meta Ads
-          </button>
-          {connectError && <p className="text-[11px] text-red-500">{connectError}</p>}
-        </div>
+        <p className="text-xs t3">
+          {canManage
+            ? "Connect this client's own Meta account to pull their live campaign data."
+            : 'Meta Ads is not connected yet — contact your account manager to set this up.'}
+        </p>
+        {canManage && (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <button
+              onClick={connect}
+              disabled={connecting}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#1877F2] hover:bg-[#166fe5] disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 transition-colors"
+            >
+              {connecting ? <Loader2 size={12} className="animate-spin" /> : <Link2 size={12} />}
+              Connect Meta Ads
+            </button>
+            {connectError && <p className="text-[11px] text-red-500">{connectError}</p>}
+          </div>
+        )}
       </div>
     )
   }
 
   if (enabledAdAccountIds === null) {
+    if (!canManage) {
+      return (
+        <div className="mt-3 rounded-lg border border-dashed border-theme px-3 py-2.5">
+          <p className="text-xs t3">Meta is connected — your account manager is finishing setup.</p>
+        </div>
+      )
+    }
     return (
       <div className="mt-3 rounded-lg border border-theme bg-surface-2 p-3">
         <AdAccountSelector client={client} />
@@ -164,22 +183,24 @@ export function ClientMetaSection({ client }: { client: Client }) {
           <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Meta connected</span>
           <span className="text-xs t3">· {enabledAccounts.length} of {adAccounts.length} enabled</span>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => reopenAdAccountSelector(client.id)}
-            className="text-xs font-medium t2 hover:t1 transition-colors"
-          >
-            Edit accounts
-          </button>
-          <button
-            onClick={disconnect}
-            disabled={disconnecting}
-            className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50"
-          >
-            {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
-            Disconnect
-          </button>
-        </div>
+        {canManage && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => reopenAdAccountSelector(client.id)}
+              className="text-xs font-medium t2 hover:t1 transition-colors"
+            >
+              Edit accounts
+            </button>
+            <button
+              onClick={disconnect}
+              disabled={disconnecting}
+              className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 font-medium transition-colors disabled:opacity-50"
+            >
+              {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unlink size={12} />}
+              Disconnect
+            </button>
+          </div>
+        )}
       </div>
 
       {enabledAccounts.length > 1 ? (
@@ -205,7 +226,9 @@ export function ClientMetaSection({ client }: { client: Client }) {
           <span className="text-[11px] font-medium bg-surface-2 border border-theme px-2 py-0.5 rounded-md t2">{enabledAccounts[0].currency}</span>
         </div>
       ) : (
-        <p className="text-xs t3">No ad accounts enabled — click "Edit accounts" to choose one.</p>
+        <p className="text-xs t3">
+          {canManage ? 'No ad accounts enabled — click "Edit accounts" to choose one.' : 'No ad account enabled yet — contact your account manager.'}
+        </p>
       )}
 
       <p className="text-[11px] t3">

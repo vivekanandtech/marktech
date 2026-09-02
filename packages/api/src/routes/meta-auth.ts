@@ -17,10 +17,16 @@ export async function metaAuthRoutes(app: FastifyInstance) {
   // Returns the Meta consent-screen URL — frontend fetches this (with its
   // Authorization header) then does window.location.href = url itself. Can't
   // be a plain <a href> / server redirect any more: this route requires a
-  // valid JWT (admin always allowed; a client_user only for a reconnect of
-  // their own already-established client), and a raw browser navigation has
-  // no way to attach that header.
-  app.get<{ Querystring: { clientId?: string } }>('/meta', async (request) => {
+  // valid JWT, and a raw browser navigation has no way to attach that header.
+  //
+  // Admin-only: the Meta OAuth flow lists every ad account the connecting
+  // Meta login can see, which for this agency's setup is every client's
+  // ad account under one shared Business Manager identity. A client_user
+  // reconnecting would see every other client's ad account name/currency —
+  // confirmed as a real data-exposure concern, not hypothetical. Clients can
+  // still view their own connection's status read-only via /settings.
+  app.get<{ Querystring: { clientId?: string } }>('/meta', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can connect Meta Ads.' })
     const clientId = request.query.clientId ?? 'default'
     assertClientAccess(request, clientId)
     return { url: getOAuthUrl(clientId) }
@@ -192,7 +198,11 @@ export async function metaAuthRoutes(app: FastifyInstance) {
   // Disconnect (revoke) — clears in-memory cache AND the persisted DB row.
   // Without the DB delete, a "disconnected" or deleted client resurfaces on
   // the next session-discovery pass since its row would still be there.
-  app.delete<{ Querystring: { clientId?: string } }>('/meta/disconnect', async (request) => {
+  // Admin-only for the same reason /meta connect is: a client disconnecting
+  // and reconnecting is how they'd end up seeing every other client's ad
+  // account under the shared Business Manager identity.
+  app.delete<{ Querystring: { clientId?: string } }>('/meta/disconnect', async (request, reply) => {
+    if ((request.user as AuthUser).role !== 'admin') return reply.code(403).send({ error: 'Only an admin can disconnect Meta Ads.' })
     const clientId = request.query.clientId ?? 'default'
     assertClientAccess(request, clientId)
     tokenStore.delete(clientId)
