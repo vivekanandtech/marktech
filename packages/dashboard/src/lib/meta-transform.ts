@@ -150,6 +150,11 @@ export function transformMetaAdSet(as: any) {
       actionTag: deriveActionTag(metrics.roas),
       trend: computeTrend(as.insights, as.previousInsights),
       ads,
+      // adCount comes from a separate cheap id-only listing in
+      // getCampaignDetail (ads themselves are lazy-loaded per ad set on
+      // expand — see AdSetRow) — falls back to ads.length for mock/demo data,
+      // which nests ads directly and has no separate count field.
+      adCount: typeof as.adCount === 'number' ? as.adCount : ads.length,
     }
   } catch {
     return null

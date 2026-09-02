@@ -227,6 +227,22 @@ export const CREATIVE_FIELDS = [
   'asset_feed_spec{videos,images}',
 ].join(',')
 
+// Lighter subset of CREATIVE_FIELDS for getCampaignDetail's ad-level drill-down,
+// which can request hundreds of ads in one campaign (unlike getTopAds' fixed
+// small N). classifyCreativeFormat + transformMetaAd's thumbnail fallback only
+// ever read the fields below — id/image_hash/effective_object_story_id/
+// photo_data{images}/link_data.picture/link/video_data.image_url are all only
+// used by getTopAds' pickBestImage hash-resolution path. Confirmed live: even
+// after cutting the ads page limit from 200->50, the full CREATIVE_FIELDS set
+// still tripped Meta's "reduce the amount of data" complexity error on a
+// 260-ad campaign — the per-ad field weight, not just the page size, was the
+// problem.
+export const AD_DRILLDOWN_CREATIVE_FIELDS = [
+  'thumbnail_url', 'image_url', 'video_id', 'object_type',
+  'object_story_spec{link_data{child_attachments},video_data{video_id}}',
+  'asset_feed_spec{videos,images}',
+].join(',')
+
 // Only request the id/name fields for the level being queried. Requesting
 // e.g. ad_id/ad_name at level=campaign makes Meta return one row per ad
 // (each with only that ad's slice of spend) instead of one aggregated row
@@ -327,7 +343,6 @@ export async function getCampaignDetail(
   const previousTimeRangeParam = encodeURIComponent(JSON.stringify(previousWindow(dateRange)))
 
   const adsetFields = `id,name,campaign_id,status,daily_budget,targeting,effective_status,insights{${insightFields}}`
-  const adFields    = `id,name,status,adset_id,campaign_id,effective_status,creative{${CREATIVE_FIELDS}},insights{${insightFields}}`
 
   const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
     try { return await fn() }
@@ -337,15 +352,32 @@ export async function getCampaignDetail(
     }
   }
 
-  // 4 calls: current + previous window, each for adsets and ads, so row-level
-  // trend badges can be computed client-side without a separate round trip.
-  const [adsets, ads, prevAdsets, prevAds] = await Promise.all([
-    safe('adsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
-    safe('ads',    () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
-    safe('prevAdsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${previousTimeRangeParam}&limit=200&access_token=${token}`)),
-    safe('prevAds',    () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=${adFields}&time_range=${previousTimeRangeParam}&limit=200&access_token=${token}`)),
+  const ADSET_PAGE_LIMIT = 200
+
+  // Ads are lazy-loaded per ad set on expand (see getAdSetAdsDetail) rather
+  // than fetched eagerly here for the whole campaign. Confirmed live against
+  // a 260-ad campaign: fetching creative+insights for every ad up front trips
+  // Meta's development-tier ads_insights usage budget — a short *rolling*
+  // window, not a per-request complexity cap — every time, regardless of
+  // page size, field weight, or pacing between pages (all three were tried
+  // and all three still failed at the same ~150-200 cumulative item mark).
+  // A typical ad set here has only a handful of ads, far under that
+  // threshold, so scoping the heavy fetch to one ad set at a time sidesteps
+  // the limit entirely instead of trying to out-tune it.
+  // We still need an accurate "N ads" count for the collapsed row, so fetch
+  // a cheap id-only listing (no insights, no creative) to count per ad set —
+  // this lands under Meta's separate, effectively unthrottled ads_management
+  // usage type.
+  const [adsets, prevAdsets, adsLite] = await Promise.all([
+    safe('adsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${timeRangeParam}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`)),
+    safe('prevAdsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${previousTimeRangeParam}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`)),
+    safe('adsLite', () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=id,adset_id&limit=500&access_token=${token}`)),
   ])
-  console.log(`[getCampaignDetail] campaign ${campaignId}: adsets=${adsets.length} ads=${ads.length}`)
+  const adCountByAdset = new Map<string, number>()
+  for (const ad of adsLite) {
+    adCountByAdset.set(ad.adset_id, (adCountByAdset.get(ad.adset_id) ?? 0) + 1)
+  }
+  console.log(`[getCampaignDetail] campaign ${campaignId}: adsets=${adsets.length} totalAds=${adsLite.length}`)
 
   // Meta returns nested insights as { data: [...], paging: {...} }.
   // Normalise to a flat object so the transform layer sees the same shape
@@ -354,20 +386,53 @@ export async function getCampaignDetail(
     Array.isArray(item.insights?.data) ? item.insights.data[0] ?? null : item.insights ?? null
 
   const prevAdsetInsights = new Map(prevAdsets.map((as: any) => [as.id, flatInsights(as)]))
-  const prevAdInsights = new Map(prevAds.map((ad: any) => [ad.id, flatInsights(ad)]))
-
-  const adsByAdset = new Map<string, any[]>()
-  for (const ad of ads) {
-    const list = adsByAdset.get(ad.adset_id) ?? []
-    list.push({ ...ad, insights: flatInsights(ad), previousInsights: prevAdInsights.get(ad.id) ?? null })
-    adsByAdset.set(ad.adset_id, list)
-  }
 
   return adsets.map((as: any) => ({
     ...as,
     insights: flatInsights(as),
     previousInsights: prevAdsetInsights.get(as.id) ?? null,
-    ads: adsByAdset.get(as.id) ?? [],
+    ads: [],
+    adCount: adCountByAdset.get(as.id) ?? 0,
+  }))
+}
+
+// Fetch one ad set's ads + insights (current and previous window), lazily
+// loaded when a user expands that specific ad set in the UI. Scoping to a
+// single ad set (typically a handful of ads) keeps this well under Meta's
+// ads_insights usage budget even for accounts stuck on development access
+// tier — see getCampaignDetail's comment for why the equivalent
+// whole-campaign fetch had to be removed.
+export async function getAdSetAdsDetail(
+  adSetId: string,
+  token: string,
+  dateRange = '30D'
+): Promise<any[]> {
+  const insightFields = BASE_INSIGHT_FIELDS.join(',')
+  const timeRangeParam = encodeURIComponent(JSON.stringify(toTimeRange(dateRange)))
+  const previousTimeRangeParam = encodeURIComponent(JSON.stringify(previousWindow(dateRange)))
+  const adFields = `id,name,status,adset_id,campaign_id,effective_status,creative{${AD_DRILLDOWN_CREATIVE_FIELDS}},insights{${insightFields}}`
+
+  const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
+    try { return await fn() }
+    catch (err: any) {
+      console.error(`[getAdSetAdsDetail] ${label} failed for adset ${adSetId}:`, err.message)
+      return []
+    }
+  }
+
+  const [ads, prevAds] = await Promise.all([
+    safe('ads', () => fetchAllPages(`${GRAPH}/${adSetId}/ads?fields=${adFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
+    safe('prevAds', () => fetchAllPages(`${GRAPH}/${adSetId}/ads?fields=${adFields}&time_range=${previousTimeRangeParam}&limit=200&access_token=${token}`)),
+  ])
+
+  const flatInsights = (item: any) =>
+    Array.isArray(item.insights?.data) ? item.insights.data[0] ?? null : item.insights ?? null
+  const prevAdInsights = new Map(prevAds.map((ad: any) => [ad.id, flatInsights(ad)]))
+
+  return ads.map((ad: any) => ({
+    ...ad,
+    insights: flatInsights(ad),
+    previousInsights: prevAdInsights.get(ad.id) ?? null,
   }))
 }
 

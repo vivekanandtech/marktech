@@ -2,8 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { apiFetch } from './api'
 import { useAuthStore } from '@/store/authStore'
 
-function mockResponse(status: number) {
-  return { status, ok: status >= 200 && status < 300 } as Response
+function mockResponse(status: number, body: unknown = null) {
+  const res = {
+    status,
+    ok: status >= 200 && status < 300,
+    json: async () => body,
+  }
+  return { ...res, clone: () => ({ ...res }) } as unknown as Response
 }
 
 describe('apiFetch', () => {
@@ -28,13 +33,29 @@ describe('apiFetch', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer a-token')
   })
 
-  it('logs out on a 401 response — this is what makes a stale/invalid session self-heal instead of failing silently forever', async () => {
-    global.fetch = vi.fn().mockResolvedValue(mockResponse(401)) as any
+  it('logs out on a 401 whose body signals a real auth failure — this is what makes a stale/invalid session self-heal instead of failing silently forever', async () => {
+    global.fetch = vi.fn().mockResolvedValue(mockResponse(401, { error: 'Unauthorized' })) as any
 
     await apiFetch('/api/clients')
 
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
     expect(useAuthStore.getState().token).toBeNull()
+  })
+
+  it('logs out on a 401 with no parseable body — an unrecognized shape defaults to treating the session as dead', async () => {
+    global.fetch = vi.fn().mockResolvedValue(mockResponse(401)) as any
+
+    await apiFetch('/api/clients')
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(false)
+  })
+
+  it('does not log out on a 401 that just means a platform isn\'t connected for this client — confirmed live regression: CountryDropdown\'s /api/shopify/countries call was force-logging-out valid sessions this way', async () => {
+    global.fetch = vi.fn().mockResolvedValue(mockResponse(401, { error: 'Shopify not connected for this client' })) as any
+
+    await apiFetch('/api/shopify/countries?clientId=some-client')
+
+    expect(useAuthStore.getState().isAuthenticated).toBe(true)
   })
 
   it('does not log out on a successful response', async () => {

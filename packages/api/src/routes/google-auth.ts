@@ -11,6 +11,9 @@ import {
 import { previousWindow } from '../lib/dateWindows'
 import { assertClientAccess, AuthUser } from '../lib/auth-guard'
 import { clientExists } from '../lib/clients'
+import { getCachedResponse, setCachedResponse } from '../lib/response-cache'
+
+const CAMPAIGNS_CACHE_TTL_MS = 5 * 60 * 1000
 
 // ─── Auth routes (public — registered under /auth) ───────────────────────────
 
@@ -189,6 +192,13 @@ export async function googleDataRoutes(app: FastifyInstance) {
       const auth = await resolveGoogleToken(clientId)
       if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
 
+      // Same reasoning as Meta's campaigns cache: the Google Ads API is slow
+      // for accounts with many campaigns, and this is re-fetched live on
+      // every page visit today.
+      const cacheKey = `google:campaigns:${clientId}:${auth.customerId}:${dateRange}`
+      const cached = await getCachedResponse<any>(cacheKey, CAMPAIGNS_CACHE_TTL_MS)
+      if (cached) return cached
+
       // Swallowing every failure into an empty array made a genuinely broken
       // customer ID or a developer-token permission issue look identical to
       // "this account just has zero campaigns" — undiagnosable from the UI,
@@ -212,7 +222,7 @@ export async function googleDataRoutes(app: FastifyInstance) {
 
       const previousByCampaignId = new Map<string, any>((previousCampaigns.value ?? []).map((c: any) => [c.campaign?.id, c]))
 
-      return {
+      const response = {
         data: (campaigns.value ?? []).map((c: any) => ({
           ...c,
           previousMetrics: previousByCampaignId.get(c.campaign?.id)?.metrics ?? null,
@@ -222,6 +232,11 @@ export async function googleDataRoutes(app: FastifyInstance) {
         source: 'google_ads_api',
         ...(campaigns.error ? { error: campaigns.error } : {}),
       }
+      // Don't cache a failure — the whole point of surfacing the real error is
+      // so a fix (e.g. correcting the developer token) is visible immediately
+      // on the next load, not stuck behind a stale cached error.
+      if (!campaigns.error) await setCachedResponse(cacheKey, response)
+      return response
     }
   )
 

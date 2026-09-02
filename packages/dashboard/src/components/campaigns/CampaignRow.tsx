@@ -172,7 +172,7 @@ export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { cam
             <td colSpan={showFunnel ? 8 : 5} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
           </tr>
         ) : (
-          displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={isGoogle ? null : adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} />)
+          displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={isGoogle ? null : adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} dateRange={dateRange} />)
         )
       )}
     </>

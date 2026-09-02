@@ -2,12 +2,15 @@ import { FastifyInstance } from 'fastify'
 import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
-  getCampaignInsights, getCampaignInsightsForWindow, getCampaigns, getAccountInsights, getCampaignDetail, getTopAds, getDailyInsights,
+  getCampaignInsights, getCampaignInsightsForWindow, getCampaigns, getAccountInsights, getCampaignDetail, getAdSetAdsDetail, getTopAds, getDailyInsights,
   dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbGetAllSessions, dbDeleteToken,
 } from '../services/meta'
 import { previousWindow } from '../lib/dateWindows'
 import { assertClientAccess, AuthUser } from '../lib/auth-guard'
 import { clientExists } from '../lib/clients'
+import { getCachedResponse, setCachedResponse } from '../lib/response-cache'
+
+const CAMPAIGNS_CACHE_TTL_MS = 5 * 60 * 1000
 
 export async function metaAuthRoutes(app: FastifyInstance) {
 
@@ -227,6 +230,16 @@ export async function metaDataRoutes(app: FastifyInstance) {
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
+      // This account can have hundreds of campaigns, each carrying a full set
+      // of insight fields — Meta's API genuinely takes multiple seconds to
+      // return that. Cache the assembled response for a short window so
+      // repeat visits (or the frontend's own re-renders) don't pay that cost
+      // every time; a manual refresh still bypasses this via cache-busting
+      // query params handled below.
+      const cacheKey = `meta:campaigns:${clientId}:${adAccountId}:${dateRange}`
+      const cached = await getCachedResponse<any>(cacheKey, CAMPAIGNS_CACHE_TTL_MS)
+      if (cached) return cached
+
       const safe = async (label: string, fn: () => Promise<any>): Promise<any> => {
         try { return await fn() }
         catch (err: any) {
@@ -249,7 +262,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
       const insightMap = new Map((campaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
       const previousInsightMap = new Map((previousCampaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
 
-      return {
+      const response = {
         data: campaigns.map((c: any) => ({
           ...c,
           insights: insightMap.get(c.id) ?? null,
@@ -259,6 +272,8 @@ export async function metaDataRoutes(app: FastifyInstance) {
         accountInsights: accountInsights ?? null,
         source: 'meta_api',
       }
+      await setCachedResponse(cacheKey, response)
+      return response
     }
   )
 
@@ -277,6 +292,26 @@ export async function metaDataRoutes(app: FastifyInstance) {
       } catch (err: any) {
         app.log.error({ err: err.message, campaignId }, 'getCampaignDetail failed')
         return reply.code(500).send({ error: err.message ?? 'Failed to load campaign detail' })
+      }
+    }
+  )
+
+  // Lazy-loaded per-ad-set ads: called when the user expands a specific ad
+  // set row (not the whole campaign) — see getAdSetAdsDetail for why ads
+  // can't be fetched eagerly for the whole campaign on large accounts.
+  app.get<{ Querystring: { clientId?: string; adSetId: string; dateRange?: string } }>(
+    '/adset-ads',
+    async (request, reply) => {
+      const { clientId = 'default', adSetId, dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
+      const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
+      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      try {
+        const ads = await getAdSetAdsDetail(adSetId, token, dateRange)
+        return { ads, source: 'meta_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, adSetId }, 'getAdSetAdsDetail failed')
+        return reply.code(500).send({ error: err.message ?? 'Failed to load ad set ads' })
       }
     }
   )

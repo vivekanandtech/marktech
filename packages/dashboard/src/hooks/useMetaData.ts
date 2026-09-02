@@ -276,3 +276,45 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
 
   return { adSets, loading, error }
 }
+
+// ─── Ad set detail ────────────────────────────────────────────────────────────
+// Lazy-loads one ad set's ads on row expand. campaign-detail no longer fetches
+// ads eagerly for the whole campaign (large accounts tripped Meta's
+// development-tier ads_insights usage budget) — this scopes the heavy
+// creative+insights fetch to a single ad set instead, which is cheap enough
+// to stay well under that limit.
+
+export function useAdSetAds(adSetId: string | null, dateRange: string) {
+  const { clientId } = useFilterStore()
+  const { clients } = useClientStore()
+  const currentClient = clients.find((c) => c.id === clientId)
+  const accessToken = currentClient?.meta.accessToken ?? null
+
+  const [ads, setAds] = useState<any[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const prevKey = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!adSetId) return
+    const key = `${adSetId}:${dateRange}`
+    if (prevKey.current === key) return
+    prevKey.current = key
+    setAds(null)
+    setError(null)
+    setLoading(true)
+    metaFetch(
+      `/api/meta/adset-ads?clientId=${clientId}&adSetId=${adSetId}&dateRange=${dateRange}`,
+      accessToken
+    )
+      .then(async (r) => {
+        const json = await r.json()
+        if (json.error) { setError(json.error); setAds([]); return }
+        setAds(json.ads ?? [])
+      })
+      .catch((e) => { setError(e.message); setAds([]) })
+      .finally(() => setLoading(false))
+  }, [adSetId, dateRange, clientId, accessToken])
+
+  return { ads, loading, error }
+}

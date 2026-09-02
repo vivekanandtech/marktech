@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { TrendBadge } from '@/components/ui/TrendBadge'
@@ -8,20 +8,31 @@ import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
 import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdRow } from './AdRow'
 import { adsetManagerUrl } from '@/lib/meta-links'
-import { MetricTrend, isMetricImproving, MetaFunnelCounts } from '@/lib/meta-transform'
+import { MetricTrend, isMetricImproving, MetaFunnelCounts, transformMetaAd } from '@/lib/meta-transform'
+import { useAdSetAds } from '@/hooks/useMetaData'
 
 interface AdSet {
   id: string; name: string; audience: string; status: string
   spend: number; roas: number; ctr: number; cpa: number; cpc: number
   impressions: number; clicks: number; conversions: number; frequency: number
-  actionTag: string; trend: MetricTrend | null; ads: any[]; funnel?: MetaFunnelCounts
+  actionTag: string; trend: MetricTrend | null; ads: any[]; adCount?: number; funnel?: MetaFunnelCounts
 }
 
 export function AdSetRow({
-  adSet, adAccountId, showFunnel = false, isGoogle = false,
-}: { adSet: AdSet; adAccountId?: string | null; showFunnel?: boolean; isGoogle?: boolean }) {
+  adSet, adAccountId, showFunnel = false, isGoogle = false, dateRange = '30D',
+}: { adSet: AdSet; adAccountId?: string | null; showFunnel?: boolean; isGoogle?: boolean; dateRange?: string }) {
   const [expanded, setExpanded] = useState(false)
   const metaUrl = adAccountId ? adsetManagerUrl(adAccountId, adSet.id) : null
+  const adCount = adSet.adCount ?? adSet.ads.length
+
+  // Live Meta data arrives with adSet.ads already empty (ads are lazy-loaded
+  // per ad set now — see useAdSetAds) even though adCount says ads exist.
+  // Mock/demo data nests ads directly, so it never hits this path.
+  const needsLazyFetch = !isGoogle && adSet.ads.length === 0 && adCount > 0
+  const lazy = useAdSetAds(needsLazyFetch && expanded ? adSet.id : null, dateRange)
+  const lazyAds = lazy.ads?.map(transformMetaAd).filter((a): a is NonNullable<typeof a> => a !== null) ?? null
+  const displayAds = needsLazyFetch ? (lazyAds ?? []) : adSet.ads
+  const adsLoading = needsLazyFetch && expanded && lazy.loading
 
   return (
     <>
@@ -48,7 +59,7 @@ export function AdSetRow({
               <p className="text-[10px] t3 mt-0.5 truncate max-w-[300px]">{adSet.audience}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <StatusBadge status={adSet.status} />
-                <span className="text-[10px] t3">{adSet.ads.length} ads</span>
+                <span className="text-[10px] t3">{adCount} ads</span>
               </div>
             </div>
           </div>
@@ -93,7 +104,24 @@ export function AdSetRow({
         )}
       </tr>
 
-      {expanded && adSet.ads.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} />)}
+      {expanded && (
+        adsLoading ? (
+          <tr>
+            <td colSpan={showFunnel ? 8 : 5} className="py-2.5 pl-16 text-xs t3">
+              <Loader2 size={12} className="inline animate-spin mr-1.5" />
+              Loading ads…
+            </td>
+          </tr>
+        ) : needsLazyFetch && lazy.error ? (
+          <tr>
+            <td colSpan={showFunnel ? 8 : 5} className="py-2.5 pl-16 text-xs text-red-500">
+              Failed to load ads: {lazy.error}
+            </td>
+          </tr>
+        ) : (
+          displayAds.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} />)
+        )
+      )}
     </>
   )
 }
