@@ -61,13 +61,18 @@ export function syncGoogleStatus(clientId: string) {
     .then((r) => r.ok ? r.json() : null)
     .then((data) => {
       if (!data) return
-      if (data.connected && data.customerId) {
-        setGoogleConnected(clientId, { customerId: data.customerId, customerName: data.customerName, customers: data.customers ?? [] })
-      } else if (!data.connected) {
+      if (data.connected) {
+        // customerId is genuinely null on a first-time connection (the OAuth
+        // callback saves the token before the user has entered one) — that's
+        // ClientGoogleSection's "enter your Customer ID" state, not
+        // "disconnected". Leaving the store untouched here (the previous
+        // behavior) meant the OAuth redirect's full page reload landed back
+        // on a stale connected:false client, so the UI showed the "Connect"
+        // button again right after a successful connect.
+        setGoogleConnected(clientId, { customerId: data.customerId ?? null, customerName: data.customerName ?? null, customers: data.customers ?? [] })
+      } else {
         setGoogleDisconnected(clientId)
       }
-      // connected but no customerId yet — leave as-is; ClientGoogleSection's
-      // manual-entry form is what's showing in that state.
     })
     .catch(() => {})
 }

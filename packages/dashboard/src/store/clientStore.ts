@@ -112,7 +112,7 @@ interface ClientStore {
   reopenAdAccountSelector: (clientId: string) => void
   setShopifyConnected: (clientId: string, data: { shopDomain: string; shopName: string }) => void
   setShopifyDisconnected: (clientId: string) => void
-  setGoogleConnected: (clientId: string, data: { customerId: string; customerName: string; customers: GoogleCustomer[] }) => void
+  setGoogleConnected: (clientId: string, data: { customerId: string | null; customerName: string | null; customers: GoogleCustomer[] }) => void
   setGoogleDisconnected: (clientId: string) => void
 }
 

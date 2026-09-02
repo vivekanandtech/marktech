@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { CheckCircle, XCircle } from 'lucide-react'
 import { useClientStore } from '@/store/clientStore'
 import { useAuthStore } from '@/store/authStore'
@@ -103,12 +103,20 @@ export function SettingsPage() {
       )}
 
       {myClients.length === 0 ? (
-        <div className="card p-8 text-center">
+        <div className="card p-8 text-center space-y-3">
           <p className="text-sm t2">
             {user?.role === 'admin'
               ? 'This page is for client logins only — manage connections for any client from the admin panel instead.'
               : 'No client is set up for your account yet — contact your account manager.'}
           </p>
+          {user?.role === 'admin' && oauthClientId && (
+            <Link
+              to={`/admin/clients/${oauthClientId}`}
+              className="inline-block text-sm font-semibold text-indigo-500 hover:underline"
+            >
+              Go to this client's connections →
+            </Link>
+          )}
         </div>
       ) : (
         myClients.map((c) => (
