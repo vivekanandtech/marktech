@@ -2,6 +2,23 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { apiFetch } from '@/lib/api'
 
+// metaAdAccountId changes here were previously local-only (persisted to this
+// browser's localStorage but never sent to the server) — the backend's own
+// meta_tokens.selected_ad_account_id column stayed null forever unless this
+// was called, which nothing did. Confirmed live: Overview (which reads that
+// column directly, unlike the ad-driven pages which read this store) treated
+// a real, working Meta connection as fully disconnected for its Meta ROAS
+// calculation as a result. Fire-and-forget — a failed sync here shouldn't
+// block the UI, and the next successful call corrects it.
+function syncSelectedAdAccount(clientId: string, adAccountId: string | null) {
+  if (!adAccountId) return
+  apiFetch('/auth/meta/select-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId, adAccountId }),
+  }).catch(() => {})
+}
+
 export interface AdAccount {
   id: string
   name: string
@@ -167,14 +184,17 @@ export const useClientStore = create<ClientStore>()(
           clients: get().clients.map((c) => (c.id === clientId ? { ...c, settings } : c)),
         }),
 
-      assignAdAccount: (clientId, adAccountId) =>
+      assignAdAccount: (clientId, adAccountId) => {
         set({
           clients: get().clients.map((c) =>
             c.id === clientId ? { ...c, metaAdAccountId: adAccountId } : c
           ),
-        }),
+        })
+        syncSelectedAdAccount(clientId, adAccountId)
+      },
 
-      setMetaConnected: (clientId, { metaUserId, adAccounts, expiresAt, accessToken }) =>
+      setMetaConnected: (clientId, { metaUserId, adAccounts, expiresAt, accessToken }) => {
+        let autoPickedAdAccountId: string | null = null
         set({
           clients: get().clients.map((c) => {
             if (c.id !== clientId) return c
@@ -192,6 +212,7 @@ export const useClientStore = create<ClientStore>()(
             let metaAdAccountId = c.metaAdAccountId
             if (enabledAdAccountIds && (!metaAdAccountId || !enabledAdAccountIds.includes(metaAdAccountId))) {
               metaAdAccountId = enabledAdAccountIds.length === 1 ? enabledAdAccountIds[0] : null
+              autoPickedAdAccountId = metaAdAccountId
             }
 
             return {
@@ -207,7 +228,9 @@ export const useClientStore = create<ClientStore>()(
               },
             }
           }),
-        }),
+        })
+        syncSelectedAdAccount(clientId, autoPickedAdAccountId)
+      },
 
       setMetaDisconnected: (clientId) =>
         set({
@@ -216,7 +239,8 @@ export const useClientStore = create<ClientStore>()(
           ),
         }),
 
-      setEnabledAdAccountIds: (clientId, ids) =>
+      setEnabledAdAccountIds: (clientId, ids) => {
+        let pickedAdAccountId: string | null = null
         set({
           clients: get().clients.map((c) => {
             if (c.id !== clientId) return c
@@ -224,9 +248,12 @@ export const useClientStore = create<ClientStore>()(
               c.metaAdAccountId && ids.includes(c.metaAdAccountId)
                 ? c.metaAdAccountId
                 : ids[0] ?? null
+            pickedAdAccountId = metaAdAccountId
             return { ...c, metaAdAccountId, meta: { ...c.meta, enabledAdAccountIds: ids } }
           }),
-        }),
+        })
+        syncSelectedAdAccount(clientId, pickedAdAccountId)
+      },
 
       reopenAdAccountSelector: (clientId) =>
         set({
