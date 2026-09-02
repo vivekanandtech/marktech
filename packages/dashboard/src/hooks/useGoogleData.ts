@@ -66,7 +66,7 @@ export interface GoogleAccountInsightsRaw {
 // ─── useGoogleCampaigns ───────────────────────────────────────────────────────
 export function useGoogleCampaigns() {
   const { clientId, dateRange } = useFilterStore()
-  const { clients } = useClientStore()
+  const { clients, setGoogleDisconnected } = useClientStore()
   const currentClient = clients.find((c) => c.id === clientId)
   const connected = currentClient?.google?.connected ?? false
 
@@ -103,11 +103,25 @@ export function useGoogleCampaigns() {
     setError(null)
 
     googleFetch(`/api/google/campaigns?clientId=${clientId}&dateRange=${dateRange}`, ac.signal)
-      .then((r) => {
-        if (r.status === 401) { useAuthStore.getState().logout(); throw new Error('session_expired') }
-        return r.json()
+      .then(async (r) => {
+        const json = await r.json()
+        // 401 "Google Ads not connected." → the token itself is gone/invalid on
+        // the server side (e.g. a revoked refresh token) — that's a Google
+        // disconnection, not a dead login session. Only a bare/other 401
+        // (JWT actually expired) should log the user out of the whole app.
+        // Matches the same distinction already made in useMetaData.ts.
+        if (r.status === 401) {
+          if (json.error === 'Google Ads not connected.') {
+            setGoogleDisconnected(clientId)
+            return null
+          }
+          useAuthStore.getState().logout()
+          throw new Error('session_expired')
+        }
+        return json
       })
       .then((json) => {
+        if (!json) return  // handled above (disconnected) — nothing further to do
         if (json.error) throw new Error(json.error)
         const campaigns = json.data ?? []
         const acctIns = json.accountInsights ?? null
