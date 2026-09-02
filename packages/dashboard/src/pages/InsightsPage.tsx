@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 import {
   Sparkles, RefreshCw, Loader2, TrendingUp, Wrench, ShieldAlert,
-  Image, PieChart, MapPin, CheckCircle2, XCircle, RotateCcw, ChevronDown,
+  Image, PieChart, MapPin, CheckCircle2, XCircle, RotateCcw, ChevronDown, Copy, Check, ExternalLink,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { MetricInfoTooltip } from '@/components/ui/MetricInfoTooltip'
+import { InsightsPanel } from '@/components/insights/InsightsPanel'
+import { useMetaCampaigns, useMetaCreatives } from '@/hooks/useMetaData'
+import { transformInsightMetrics, transformMetaCampaign, classifyCreativeFormat } from '@/lib/meta-transform'
+import { campaignManagerUrl, accountManagerUrl } from '@/lib/meta-links'
+import { InsightsPayload } from '@/store/insightsStore'
 import {
   useCrossChannelInsightsStore, RankedRecommendation, RecommendationCategory,
 } from '@/store/crossChannelInsightsStore'
@@ -20,8 +25,47 @@ const CATEGORY_CONFIG: Record<RecommendationCategory, { icon: typeof TrendingUp;
   geography: { icon: MapPin,      label: 'Geography', classes: 'text-sky-600 dark:text-sky-400 bg-sky-500/10 border-sky-500/30' },
 }
 
+const CATEGORY_ORDER: RecommendationCategory[] = ['scale', 'fix', 'tracking', 'creative', 'budget', 'geography']
 const CONFIDENCE_LABEL: Record<string, string> = { high: 'High confidence', medium: 'Medium confidence', low: 'Low confidence' }
 const EFFORT_LABEL: Record<string, string> = { low: 'Low effort', medium: 'Medium effort', high: 'High effort' }
+
+// Real deep link when we have enough to build one (Meta campaign + this
+// client's ad account); otherwise a same-platform fallback so the CTA still
+// goes somewhere useful rather than being hidden.
+function resolveSourceLink(rec: RankedRecommendation, metaAdAccountId: string | null): { href: string; label: string; external: boolean } | null {
+  const entity = rec.sourceEntity
+  if (!entity?.platform) return null
+
+  if (entity.platform === 'meta') {
+    if (entity.type === 'campaign' && entity.id && metaAdAccountId) {
+      return { href: campaignManagerUrl(metaAdAccountId, entity.id), label: 'Open campaign in Meta Ads Manager', external: true }
+    }
+    if (metaAdAccountId) return { href: accountManagerUrl(metaAdAccountId), label: 'Open Meta Ads Manager', external: true }
+    return { href: '/meta', label: 'View in Meta Ads', external: false }
+  }
+  if (entity.platform === 'google') return { href: '/google', label: 'View in Google Ads', external: false }
+  return { href: '/shopify', label: 'View in Shopify', external: false }
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation()
+        navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        })
+      }}
+      className="inline-flex items-center gap-1.5 text-[11px] font-semibold t3 hover:t1 border border-theme rounded-lg px-2.5 py-1.5 mt-2.5 transition-colors"
+      title="Copy evidence to clipboard"
+    >
+      {copied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
 
 function StatusActions({ rec, clientId }: { rec: RankedRecommendation; clientId: string }) {
   const updateStatus = useCrossChannelInsightsStore((s) => s.updateStatus)
@@ -53,27 +97,34 @@ function StatusActions({ rec, clientId }: { rec: RankedRecommendation; clientId:
   )
 }
 
-function EvidenceBody({ rec }: { rec: RankedRecommendation }) {
+function EvidenceBody({ rec, metaAdAccountId }: { rec: RankedRecommendation; metaAdAccountId: string | null }) {
+  const link = resolveSourceLink(rec, metaAdAccountId)
   return (
     <>
       <p className="text-xs t2 leading-relaxed">{rec.evidence}</p>
-      <p className="text-xs t3 italic mt-1.5">{rec.expectedImpact}</p>
-      {rec.sourceEntity?.platform && (
-        <a
-          href={rec.sourceEntity.platform === 'meta' ? '/meta' : rec.sourceEntity.platform === 'google' ? '/google' : '/shopify'}
-          onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1.5 text-[11px] font-semibold t2 hover:t1 border border-theme rounded-lg px-2.5 py-1.5 mt-2.5 transition-colors"
-        >
-          View in {rec.sourceEntity.platform === 'meta' ? 'Meta Ads' : rec.sourceEntity.platform === 'google' ? 'Google Ads' : 'Shopify'}
-        </a>
-      )}
+      <div className="flex items-center gap-2 mt-2 flex-wrap">
+        {link && (
+          <a
+            href={link.href}
+            target={link.external ? '_blank' : undefined}
+            rel={link.external ? 'noopener noreferrer' : undefined}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-white bg-[#1877F2] hover:bg-[#166fe5] rounded-lg px-2.5 py-1.5 mt-0.5 transition-colors"
+          >
+            {link.external ? <ExternalLink size={11} /> : null}
+            {link.label}
+          </a>
+        )}
+        <CopyButton text={`${rec.title}\n${rec.evidence}\nExpected impact: ${rec.expectedImpact}`} />
+      </div>
+      <p className="text-xs t3 italic mt-2">💡 {rec.expectedImpact}</p>
     </>
   )
 }
 
 // The single most important finding — always fully visible, visually distinct
 // from the rest so a glance at the page tells you what matters most first.
-function HeroCard({ rec, clientId }: { rec: RankedRecommendation; clientId: string }) {
+function HeroCard({ rec, clientId, metaAdAccountId }: { rec: RankedRecommendation; clientId: string; metaAdAccountId: string | null }) {
   const cfg = CATEGORY_CONFIG[rec.category]
   const Icon = cfg.icon
   const dismissed = rec.status === 'dismissed'
@@ -100,7 +151,7 @@ function HeroCard({ rec, clientId }: { rec: RankedRecommendation; clientId: stri
       </div>
 
       <div className="mt-2">
-        <EvidenceBody rec={rec} />
+        <EvidenceBody rec={rec} metaAdAccountId={metaAdAccountId} />
       </div>
 
       <div className="mt-3">
@@ -111,8 +162,8 @@ function HeroCard({ rec, clientId }: { rec: RankedRecommendation; clientId: stri
 }
 
 // Everything below rank 1 — compact, collapsed by default, so the page reads
-// as a scannable list rather than eight equally-loud walls of text.
-function CompactRow({ rec, clientId }: { rec: RankedRecommendation; clientId: string }) {
+// as a scannable list rather than several equally-loud walls of text.
+function CompactRow({ rec, clientId, metaAdAccountId }: { rec: RankedRecommendation; clientId: string; metaAdAccountId: string | null }) {
   const [expanded, setExpanded] = useState(false)
   const cfg = CATEGORY_CONFIG[rec.category]
   const Icon = cfg.icon
@@ -139,7 +190,7 @@ function CompactRow({ rec, clientId }: { rec: RankedRecommendation; clientId: st
             <span className="text-[10px] t3">{CONFIDENCE_LABEL[rec.confidence]} · {EFFORT_LABEL[rec.effort]}</span>
             {rec.sourceMetricId && <MetricInfoTooltip metricId={rec.sourceMetricId} size="sm" />}
           </div>
-          <EvidenceBody rec={rec} />
+          <EvidenceBody rec={rec} metaAdAccountId={metaAdAccountId} />
           <div className="mt-3">
             <StatusActions rec={rec} clientId={clientId} />
           </div>
@@ -149,13 +200,38 @@ function CompactRow({ rec, clientId }: { rec: RankedRecommendation; clientId: st
   )
 }
 
+function StatChip({ label, value, accent }: { label: string; value: number; accent?: string }) {
+  return (
+    <div className="flex-1 min-w-[100px] rounded-xl border border-theme bg-surface-2 px-3 py-2.5">
+      <p className={clsx('text-xl font-bold', accent ?? 't1')}>{value}</p>
+      <p className="text-[10px] uppercase tracking-wide t3 mt-0.5">{label}</p>
+    </div>
+  )
+}
+
+// Raw Meta ad (from getTopAds) → InsightsPayload creative shape.
+function toCreativeForPayload(ad: any) {
+  const ins = ad.insights?.data?.[0] ?? null
+  const metrics = transformInsightMetrics(ins)
+  const format = classifyCreativeFormat(ad.creative)
+  return {
+    id: ad.id ?? String(Math.random()),
+    name: ad.name ?? 'Unnamed ad',
+    format,
+    spend: metrics.spend, roas: metrics.roas, ctr: metrics.ctr, frequency: metrics.frequency,
+  }
+}
+
 export function InsightsPage() {
   const clientId = useFilterStore((s) => s.clientId)
   const dateRange = useFilterStore((s) => s.dateRange)
   const { clients } = useClientStore()
   const { payload, loading, error, fetchedForClient, fetchLatest, generate } = useCrossChannelInsightsStore()
+  const [categoryFilter, setCategoryFilter] = useState<RecommendationCategory | 'all'>('all')
 
   const currentClient = clients.find((c) => c.id === clientId)
+  const connected = currentClient?.meta.connected ?? false
+  const metaAdAccountId = currentClient?.metaAdAccountId ?? null
   const connectedSomewhere = !!(currentClient?.meta.connected || currentClient?.shopify.connected || currentClient?.google?.connected)
 
   useEffect(() => {
@@ -163,11 +239,42 @@ export function InsightsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, connectedSomewhere])
 
+  // Same AI Insights panel as Overview — reuses the global insights store, so
+  // anything already generated there shows here too without refetching.
+  const { data: rawCampaigns, accountInsights } = useMetaCampaigns()
+  const { data: rawAds } = useMetaCreatives()
+  const acct = accountInsights ? transformInsightMetrics(accountInsights) : null
+  const allTransformed = rawCampaigns
+    .map(transformMetaCampaign)
+    .filter((c): c is NonNullable<ReturnType<typeof transformMetaCampaign>> => c !== null)
+  const insightsPayload: InsightsPayload | null = connected && acct
+    ? {
+        account: {
+          spend: acct.spend, roas: acct.roas, ctr: acct.ctr, cpa: acct.cpa,
+          cpm: acct.cpm, reach: acct.reach, impressions: acct.impressions, clicks: acct.clicks,
+        },
+        campaigns: allTransformed.map((c) => ({
+          id: c.id, name: c.name, spend: c.spend, roas: c.roas, ctr: c.ctr, cpa: c.cpa,
+          frequency: c.frequency, conversions: c.conversions, objective: c.objective, status: c.status,
+        })),
+        creatives: rawAds.map(toCreativeForPayload),
+      }
+    : null
+
   const recommendations = payload?.recommendations ?? []
-  const [hero, ...rest] = recommendations
+  const categoryCounts = CATEGORY_ORDER.reduce((acc, cat) => {
+    acc[cat] = recommendations.filter((r) => r.category === cat).length
+    return acc
+  }, {} as Record<RecommendationCategory, number>)
+  const filteredRecs = categoryFilter === 'all' ? recommendations : recommendations.filter((r) => r.category === categoryFilter)
+  const [hero, ...rest] = filteredRecs
+
+  const doneCount = recommendations.filter((r) => r.status === 'done').length
+  const dismissedCount = recommendations.filter((r) => r.status === 'dismissed').length
+  const newCount = recommendations.filter((r) => r.status === 'new').length
 
   return (
-    <div className="p-6 space-y-5 max-w-3xl">
+    <div className="p-6 space-y-5 animate-fade-in">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold t1 flex items-center gap-2">
@@ -217,14 +324,76 @@ export function InsightsPage() {
         </div>
       )}
 
-      {hero && (
-        <div className="space-y-2">
-          <HeroCard rec={hero} clientId={clientId} />
-          {rest.length > 0 && (
-            <div className="space-y-1.5 pt-1">
-              {rest.map((rec) => <CompactRow key={rec.rank} rec={rec} clientId={clientId} />)}
+      {recommendations.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* ── Main column ─────────────────────────────────────────── */}
+          <div className="lg:col-span-2 space-y-4">
+            {/* Stats strip */}
+            <div className="flex gap-2 flex-wrap">
+              <StatChip label="Total" value={recommendations.length} />
+              <StatChip label="New" value={newCount} accent="text-indigo-500" />
+              <StatChip label="Done" value={doneCount} accent="text-emerald-500" />
+              <StatChip label="Dismissed" value={dismissedCount} accent="t3" />
             </div>
-          )}
+
+            {/* Category filter */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setCategoryFilter('all')}
+                className={clsx(
+                  'px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                  categoryFilter === 'all' ? 'bg-indigo-600 text-white border-indigo-600' : 't2 border-theme hover:t1'
+                )}
+              >
+                All ({recommendations.length})
+              </button>
+              {CATEGORY_ORDER.filter((cat) => categoryCounts[cat] > 0).map((cat) => {
+                const cfg = CATEGORY_CONFIG[cat]
+                const Icon = cfg.icon
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoryFilter(cat)}
+                    className={clsx(
+                      'flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                      categoryFilter === cat ? cfg.classes + ' border-2' : 't2 border-theme hover:t1'
+                    )}
+                  >
+                    <Icon size={12} /> {cfg.label} ({categoryCounts[cat]})
+                  </button>
+                )
+              })}
+            </div>
+
+            {hero ? (
+              <div className="space-y-2">
+                <HeroCard rec={hero} clientId={clientId} metaAdAccountId={metaAdAccountId} />
+                {rest.length > 0 && (
+                  <div className="space-y-1.5 pt-1">
+                    {rest.map((rec) => <CompactRow key={rec.rank} rec={rec} clientId={clientId} metaAdAccountId={metaAdAccountId} />)}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="card flex items-center justify-center py-10 text-sm t3">
+                No recommendations in this category.
+              </div>
+            )}
+          </div>
+
+          {/* ── Sidebar: same AI Insights panel as Overview ────────────── */}
+          <div className="lg:col-span-1">
+            <div className="lg:sticky lg:top-6">
+              {connected ? (
+                <InsightsPanel payload={insightsPayload} adAccountId={metaAdAccountId} />
+              ) : (
+                <div className="card p-5 text-center">
+                  <Sparkles size={22} className="t3 opacity-40 mx-auto mb-2" />
+                  <p className="text-xs t3">Connect Meta to get ad-level AI insights here too.</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

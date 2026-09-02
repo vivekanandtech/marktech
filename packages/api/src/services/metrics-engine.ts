@@ -1,5 +1,6 @@
 import { getPool } from '../lib/db'
 import { currentWindow, previousWindow, pctChange, daysForRange, DateWindow } from '../lib/dateWindows'
+import { metaReportedRevenueOf } from '../lib/meta-actions'
 import {
   dbGetToken as dbGetMetaToken, getAccountInsightsForWindow as getMetaInsightsForWindow,
   getDailyInsights as getMetaDailyInsights,
@@ -9,18 +10,9 @@ import {
   getGoogleAccountInsightsForWindow, getGoogleDailyInsightsForWindow,
 } from './google'
 import {
-  dbGetShopifyToken, getOrdersByChannel, getMetaSessions, getSalesByCountry,
+  dbGetShopifyToken, getOrdersByChannel, getMetaSessions, getTotalSessions, getSalesByCountry,
   getNewCustomerCount, getNetRevenueByDay, AttributionChannel, ChannelTotals,
 } from './shopify'
-
-const PURCHASE_ACTION_TYPES = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']
-
-export function metaReportedRevenueOf(ins: any): number {
-  const values = Array.isArray(ins?.action_values) ? ins.action_values : []
-  return values
-    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + (parseFloat(a.value) || 0), 0)
-}
 
 export interface PeriodMetrics {
   metaSpend: number
@@ -47,6 +39,18 @@ export interface PeriodMetrics {
   googleChannelNetRevenue: number
   metaOverClaimMultiplier: number
   googleOverClaimMultiplier: number
+  // Platform-reported ROAS (each platform's own claimed revenue ÷ its own
+  // spend) — NOT the truth-based number (that's `mer`, aliased here as
+  // `blendedRoas` since ad-platform users read "ROAS" more readily than
+  // "MER"). Kept clearly separate so a Meta/Google toggle can show either
+  // platform's own self-reported figure without it being confused for truth.
+  metaRoas: number
+  googleRoas: number
+  blendedRoas: number
+  // Site-wide, not Meta-attributed — the real denominator for conversion rate.
+  totalSessions: number
+  totalOrders: number
+  conversionRate: number
   sourceConfidence: 'exact' | 'approximate'
 }
 
@@ -69,16 +73,19 @@ export function derivePeriodMetrics(input: {
   googleReportedRevenue: number
   channelTotals: Record<AttributionChannel, ChannelTotals>
   metaSessions: number
+  totalSessions: number
   newCustomerCount: number
   newCustomerDataAvailable: boolean
   nCACSourceApproximate: boolean
 }): PeriodMetrics {
   const {
     metaSpend, metaReportedRevenue, googleSpend, googleReportedRevenue,
-    channelTotals, metaSessions, newCustomerCount, newCustomerDataAvailable, nCACSourceApproximate,
+    channelTotals, metaSessions, totalSessions, newCustomerCount, newCustomerDataAvailable, nCACSourceApproximate,
   } = input
 
   const shopifyNetRevenue = Object.values(channelTotals).reduce((sum, b) => sum + b.netSales, 0)
+  const totalOrders = Object.values(channelTotals).reduce((sum, b) => sum + b.orders, 0)
+  const conversionRate = totalSessions > 0 ? (totalOrders / totalSessions) * 100 : 0
   const metaAttributedOrders = channelTotals.meta.orders
   const googleAttributedOrders = channelTotals.google.orders
 
@@ -94,6 +101,9 @@ export function derivePeriodMetrics(input: {
   const metaOverClaimMultiplier = metaChannelNetRevenue > 0 ? metaReportedRevenue / metaChannelNetRevenue : 0
   const googleOverClaimMultiplier = googleChannelNetRevenue > 0 ? googleReportedRevenue / googleChannelNetRevenue : 0
 
+  const metaRoas = metaSpend > 0 ? metaReportedRevenue / metaSpend : 0
+  const googleRoas = googleSpend > 0 ? googleReportedRevenue / googleSpend : 0
+
   return {
     metaSpend, googleSpend, blendedSpend,
     metaReportedRevenue, googleReportedRevenue, shopifyNetRevenue,
@@ -103,6 +113,8 @@ export function derivePeriodMetrics(input: {
     platformClaimedRevenue, overClaimMultiplier,
     metaChannelNetRevenue, googleChannelNetRevenue,
     metaOverClaimMultiplier, googleOverClaimMultiplier,
+    metaRoas, googleRoas, blendedRoas: mer,
+    totalSessions, totalOrders, conversionRate,
     sourceConfidence: nCACSourceApproximate ? 'approximate' : 'exact',
   }
 }
@@ -120,11 +132,12 @@ async function computePeriodMetrics(
   google: { accessToken: string; customerId: string } | null,
   shopify: { shopDomain: string; accessToken: string } | null
 ): Promise<PeriodMetrics> {
-  const [metaIns, googleIns, ordersByChannel, metaSessions] = await Promise.all([
+  const [metaIns, googleIns, ordersByChannel, metaSessions, totalSessions] = await Promise.all([
     meta ? getMetaInsightsForWindow(meta.adAccountId, meta.accessToken, window).catch(() => null) : null,
     google ? getGoogleAccountInsightsForWindow(google.customerId, google.accessToken, window).catch(() => null) : null,
-    shopify ? getOrdersByChannel(shopify.shopDomain, shopify.accessToken, days).catch(() => null) : null,
-    shopify ? getMetaSessions(shopify.shopDomain, shopify.accessToken, days).catch(() => 0) : 0,
+    shopify ? getOrdersByChannel(shopify.shopDomain, shopify.accessToken, window).catch(() => null) : null,
+    shopify ? getMetaSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => 0) : 0,
+    shopify ? getTotalSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => 0) : 0,
   ])
 
   let newCustomerCount = 0
@@ -149,7 +162,7 @@ async function computePeriodMetrics(
     googleSpend: googleIns ? (googleIns.costMicros ?? 0) / 1_000_000 : 0,
     googleReportedRevenue: googleIns ? (googleIns.conversionsValue ?? 0) : 0,
     channelTotals: ordersByChannel ?? EMPTY_CHANNEL_TOTALS,
-    metaSessions,
+    metaSessions, totalSessions,
     newCustomerCount, newCustomerDataAvailable, nCACSourceApproximate,
   })
 }
@@ -219,7 +232,7 @@ export async function computeOverviewMetrics(
   let countryBreakdown: { country: string; orders: number; netSales: number }[] = []
   if (shopify) {
     try {
-      const { columns, rows } = await getSalesByCountry(shopify.shopDomain, shopify.accessToken, days)
+      const { columns, rows } = await getSalesByCountry(shopify.shopDomain, shopify.accessToken, currentWindow(dateRange))
       const countryIdx = columns.findIndex((c) => c.name === 'billing_country')
       const ordersIdx = columns.findIndex((c) => c.name === 'orders')
       const salesIdx = columns.findIndex((c) => c.name === 'net_sales')
@@ -260,8 +273,6 @@ export interface ReconciliationTrendResponse {
 export async function computeReconciliationTrend(
   clientId: string, dateRange: string
 ): Promise<ReconciliationTrendResponse> {
-  const days = daysForRange(dateRange)
-
   const [metaToken, googleToken, shopifyToken] = await Promise.all([
     dbGetMetaToken(clientId),
     dbGetGoogleToken(clientId),
@@ -284,7 +295,7 @@ export async function computeReconciliationTrend(
   const [metaDaily, googleDaily, shopifyDaily] = await Promise.all([
     meta ? getMetaDailyInsights(meta.adAccountId, meta.accessToken, dateRange).catch(() => []) : [],
     google ? getGoogleDailyInsightsForWindow(google.customerId, google.accessToken, window).catch(() => []) : [],
-    shopify ? getNetRevenueByDay(shopify.shopDomain, shopify.accessToken, days).catch(() => null) : null,
+    shopify ? getNetRevenueByDay(shopify.shopDomain, shopify.accessToken, window).catch(() => null) : null,
   ])
 
   const claimedByDate = new Map<string, number>()

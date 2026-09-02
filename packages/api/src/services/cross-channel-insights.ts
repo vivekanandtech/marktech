@@ -1,20 +1,18 @@
 import { getPool } from '../lib/db'
 import { callStructured } from './llm-provider'
 import { currentWindow } from '../lib/dateWindows'
-import { computeOverviewMetrics, metaReportedRevenueOf } from './metrics-engine'
+import { computeOverviewMetrics } from './metrics-engine'
+import { metaReportedRevenueOf, sumActionCount, PURCHASE_ACTION_TYPES } from '../lib/meta-actions'
 import { dbGetToken as dbGetMetaToken, getCampaignInsightsForWindow } from './meta'
 import { dbGetGoogleToken, getValidAccessToken as getValidGoogleAccessToken, getGoogleCampaignsForWindow } from './google'
 
 const TOP_N = 10
-const PURCHASE_ACTION_TYPES = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']
 
 function summarizeMetaCampaign(raw: any) {
   const spend = parseFloat(raw.spend) || 0
   const revenue = metaReportedRevenueOf(raw)
   const roas = spend > 0 ? revenue / spend : 0
-  const purchases = (Array.isArray(raw.actions) ? raw.actions : [])
-    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + (parseInt(a.value, 10) || 0), 0)
+  const purchases = sumActionCount(raw, PURCHASE_ACTION_TYPES)
   const cpa = purchases > 0 ? spend / purchases : 0
   return {
     id: raw.campaign_id,

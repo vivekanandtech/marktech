@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, TrendingUp, Target, Image, Bell, Settings,
-  ChevronRight, Zap, ShoppingBag, Sparkles, ArrowLeft,
+  Zap, ShoppingBag, Sparkles, ArrowLeft, Package,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useFilterStore } from '@/store/filterStore'
@@ -15,6 +15,7 @@ const NAV: NavGroup[] = [
   {
     items: [
       { label: 'Overview', to: '/overview', icon: <LayoutDashboard size={16} /> },
+      { label: 'Products', to: '/products', icon: <Package size={16} /> },
       { label: 'Insights', to: '/insights', icon: <Sparkles size={16} /> },
     ],
   },
@@ -130,15 +131,6 @@ export function Sidebar() {
           )}
         </ul>
       </nav>
-
-      {/* API status */}
-      <div className="px-4 py-3 border-t border-theme">
-        <div className="flex items-center gap-2 text-xs t3">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-          Mock data mode
-          <ChevronRight size={10} className="ml-auto" />
-        </div>
-      </div>
     </aside>
   )
 }

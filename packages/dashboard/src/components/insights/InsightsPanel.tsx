@@ -2,7 +2,7 @@ import { Sparkles, AlertOctagon, AlertTriangle, TrendingUp, Lightbulb, RefreshCw
 import clsx from 'clsx'
 import { useInsightsStore, InsightSeverity, InsightsPayload } from '@/store/insightsStore'
 import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
-import { campaignManagerUrl } from '@/lib/meta-links'
+import { campaignManagerUrl, adManagerUrl } from '@/lib/meta-links'
 
 const SEVERITY_CONFIG: Record<InsightSeverity, { icon: typeof AlertOctagon; classes: string }> = {
   critical:    { icon: AlertOctagon,  classes: 'text-red-600 dark:text-red-400 bg-red-500/10 border-red-500/30' },
@@ -65,8 +65,9 @@ export function InsightsPanel({ payload, adAccountId }: { payload: InsightsPaylo
           {insights.map((insight, i) => {
             const cfg = SEVERITY_CONFIG[insight.severity]
             const Icon = cfg.icon
-            const ctaHref = insight.entityType === 'campaign' && insight.entityId && adAccountId
-              ? campaignManagerUrl(adAccountId, insight.entityId)
+            const ctaHref = !insight.entityId || !adAccountId ? null
+              : insight.entityType === 'campaign' ? campaignManagerUrl(adAccountId, insight.entityId)
+              : insight.entityType === 'creative' ? adManagerUrl(adAccountId, insight.entityId)
               : null
             return (
               <div key={i} className={clsx('flex items-start gap-3 rounded-lg border p-3 backdrop-blur-sm', cfg.classes)}>

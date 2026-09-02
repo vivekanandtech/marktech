@@ -13,6 +13,7 @@ import { googleAuthRoutes, googleDataRoutes } from './routes/google-auth'
 import { insightsRoutes } from './routes/insights'
 import { metricsRoutes } from './routes/metrics'
 import { clientsRoutes } from './routes/clients'
+import { productsRoutes } from './routes/products'
 import { isValidAuthUser } from './lib/auth-guard'
 
 export function buildApp() {
@@ -83,6 +84,7 @@ export function buildApp() {
   app.register(insightsRoutes, { prefix: '/api/insights' })
   app.register(metricsRoutes, { prefix: '/api/metrics' })
   app.register(clientsRoutes, { prefix: '/api/clients' })
+  app.register(productsRoutes, { prefix: '/api/products' })
 
   return app
 }

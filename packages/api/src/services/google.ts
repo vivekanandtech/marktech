@@ -270,6 +270,81 @@ async function getGoogleCampaignsForFilter(
   return gaqlSearch(customerId, accessToken, query.trim(), managerId)
 }
 
+// Per-product ad performance from Google Shopping/Performance Max campaigns —
+// verified live: `shopping_performance_view` is accessible on this account
+// and returns real segments.product_item_id/product_title with genuine
+// cost/conversions/revenue (not just clicks/impressions). Item IDs are
+// variant-level (one row per size/color), formatted like
+// "shopify_in_{productId}_{variantId}" for a Shopify-synced Merchant Center
+// feed — parsed out here so callers get one row per product, matching how
+// Shopify's own product data is grouped.
+export interface GoogleProductRow {
+  productId: string        // Shopify numeric product id when parseable, else the raw item id
+  productTitle: string
+  cost: number
+  conversions: number
+  conversionsValue: number
+  clicks: number
+  impressions: number
+}
+
+// "shopify_in_8285529800893_46702421115069" -> "8285529800893". Falls back to
+// null (caller groups by the raw item id instead) for any other shape, rather
+// than guessing — an unmatched item should show as its own line, not be
+// silently merged into the wrong product.
+export function parseShopifyProductId(itemId: string): string | null {
+  const m = /^shopify_[a-z]{2}_(\d+)_\d+$/i.exec(itemId)
+  return m ? m[1] : null
+}
+
+export async function getGoogleProductPerformance(
+  customerId: string, accessToken: string, dateRange = '30D', managerId?: string
+): Promise<GoogleProductRow[]> {
+  return getGoogleProductPerformanceForFilter(customerId, accessToken, gaqlDateFilter(dateRange), managerId)
+}
+
+export async function getGoogleProductPerformanceForWindow(
+  customerId: string, accessToken: string, window: { since: string; until: string }, managerId?: string
+): Promise<GoogleProductRow[]> {
+  return getGoogleProductPerformanceForFilter(customerId, accessToken, windowToGaqlFilter(window), managerId)
+}
+
+async function getGoogleProductPerformanceForFilter(
+  customerId: string, accessToken: string, dateFilter: string, managerId?: string
+): Promise<GoogleProductRow[]> {
+  const query = `
+    SELECT
+      segments.product_item_id,
+      segments.product_title,
+      metrics.cost_micros,
+      metrics.conversions,
+      metrics.conversions_value,
+      metrics.clicks,
+      metrics.impressions
+    FROM shopping_performance_view
+    WHERE segments.date ${dateFilter}
+  `
+  const rows = await gaqlSearch(customerId, accessToken, query.trim(), managerId)
+
+  const byProduct = new Map<string, GoogleProductRow>()
+  for (const r of rows) {
+    const itemId = r.segments?.productItemId ?? ''
+    if (!itemId) continue
+    const productId = parseShopifyProductId(itemId) ?? itemId
+    const existing = byProduct.get(productId) ?? {
+      productId, productTitle: r.segments?.productTitle ?? 'Untitled product',
+      cost: 0, conversions: 0, conversionsValue: 0, clicks: 0, impressions: 0,
+    }
+    existing.cost += (Number(r.metrics?.costMicros) || 0) / 1_000_000
+    existing.conversions += Number(r.metrics?.conversions) || 0
+    existing.conversionsValue += Number(r.metrics?.conversionsValue) || 0
+    existing.clicks += Number(r.metrics?.clicks) || 0
+    existing.impressions += Number(r.metrics?.impressions) || 0
+    byProduct.set(productId, existing)
+  }
+  return Array.from(byProduct.values()).sort((a, b) => b.cost - a.cost)
+}
+
 export async function getGoogleAdGroups(
   customerId: string, campaignId: string, accessToken: string, dateRange = '30D', managerId?: string
 ): Promise<any[]> {

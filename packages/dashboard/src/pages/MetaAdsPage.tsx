@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Eye, MousePointer, DollarSign, TrendingUp, Layers, Loader2, AlertTriangle, Link2, ExternalLink, RefreshCw } from 'lucide-react'
+import { Eye, MousePointer, IndianRupee, TrendingUp, Layers, Loader2, AlertTriangle, Link2, ExternalLink, RefreshCw } from 'lucide-react'
 import clsx from 'clsx'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '@/components/ui/MetricCard'
+import { Pagination } from '@/components/ui/Pagination'
 import { CampaignTable, SortKey, SortDir } from '@/components/campaigns/CampaignTable'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useFilterStore } from '@/store/filterStore'
@@ -33,7 +34,7 @@ const ACTION_TAG_FILTERS: { value: ActionTagFilter; label: string; activeClass: 
 
 const TAG_ORDER: Record<string, number> = { scale: 0, watch: 1, optimise: 2 }
 
-const PAGE_SIZE = 20
+const DEFAULT_PAGE_SIZE = 25
 
 // ─── Connected view ───────────────────────────────────────────────────────────
 function ConnectedView() {
@@ -48,6 +49,7 @@ function ConnectedView() {
   const [sortKey, setSortKey] = useState<SortKey>('spend')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const { data: rawCampaigns, accountInsights, loading, error } = useMetaCampaigns()
 
   function handleRefresh() {
@@ -73,8 +75,9 @@ function ConnectedView() {
     (typeFilter === 'all' || c.status === typeFilter) &&
     (tagFilter === 'all' || c.actionTag === tagFilter)
   )
-  const paginated = filtered.slice(0, (page + 1) * PAGE_SIZE)
-  const hasMore = paginated.length < filtered.length
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const clampedPage = Math.min(page, totalPages - 1)
+  const paginated = filtered.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize)
 
   // Use account-level insights for KPI cards — these are the exact totals Meta
   // shows, independent of pagination. Fall back to aggregating campaign rows
@@ -142,7 +145,7 @@ function ConnectedView() {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <MetricCard label="Meta Spend" value={formatCurrency(totalSpend)} change={0} improving icon={<DollarSign size={15} />} />
+            <MetricCard label="Meta Spend" value={formatCurrency(totalSpend)} change={0} improving icon={<IndianRupee size={15} />} />
             <MetricCard label="Avg ROAS" value={formatRoas(avgRoas)} change={0} improving icon={<TrendingUp size={15} />} highlight />
             <MetricCard label="Reach" value={formatNumber(totalReach)} change={0} improving icon={<Eye size={15} />} />
             <MetricCard label="Avg CTR" value={formatPercent(avgCtr)} change={0} improving icon={<MousePointer size={15} />} />
@@ -156,7 +159,7 @@ function ConnectedView() {
                   Campaigns <span className="text-xs font-normal t3 ml-1">({filtered.length} total)</span>
                   {loading && <span className="ml-2 text-xs text-blue-500 animate-pulse">Refreshing…</span>}
                 </h3>
-                <p className="text-xs t3 mt-0.5">Live · Showing {paginated.length} of {filtered.length}</p>
+                <p className="text-xs t3 mt-0.5">Live · Page {clampedPage + 1} of {totalPages}</p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Status filter */}
@@ -201,13 +204,14 @@ function ConnectedView() {
                 adAccountId={adAccountId}
               />
             </ErrorBoundary>
-            {hasMore && (
-              <button
-                onClick={() => setPage((p) => p + 1)}
-                className="mt-4 w-full text-xs font-medium t2 hover:t1 border border-dashed border-theme rounded-lg py-2.5 transition-colors"
-              >
-                Load more ({filtered.length - paginated.length} remaining)
-              </button>
+            {filtered.length > 0 && (
+              <Pagination
+                page={clampedPage}
+                totalItems={filtered.length}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
             )}
           </div>
         </>
@@ -264,7 +268,7 @@ function MockView() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <MetricCard label="Meta Spend" value={formatCurrency(totalSpend)} change={metrics.adSpend.change} improving={metrics.adSpend.improving} icon={<DollarSign size={15} />} />
+        <MetricCard label="Meta Spend" value={formatCurrency(totalSpend)} change={metrics.adSpend.change} improving={metrics.adSpend.improving} icon={<IndianRupee size={15} />} />
         <MetricCard label="Avg ROAS" value={formatRoas(avgRoas)} change={metrics.attributedRoas.change} improving={metrics.attributedRoas.improving} icon={<TrendingUp size={15} />} highlight />
         <MetricCard label="Reach" value={formatNumber(totalReach)} change={metrics.reach.change} improving={metrics.reach.improving} icon={<Eye size={15} />} />
         <MetricCard label="Avg CTR" value={formatPercent(avgCtr)} change={metrics.ctr.change} improving={metrics.ctr.improving} icon={<MousePointer size={15} />} />

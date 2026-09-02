@@ -4,10 +4,11 @@ import {
   normalizeShopDomain, shopifyTokenStore, getClientCredentialsToken,
   dbSaveShopifyToken, dbGetShopifyToken, dbDeleteShopifyToken,
   getOrdersByChannel, getMetaSessions, getSalesByCountry, getAvailableCountries,
-  getNewCustomerCount,
+  getNewCustomerCount, getTodaySummary, getOrderSummary,
 } from '../services/shopify'
 import { assertClientAccess } from '../lib/auth-guard'
 import { clientExists } from '../lib/clients'
+import { currentWindow, previousWindow, pctChange } from '../lib/dateWindows'
 
 // ─── Auth routes ──────────────────────────────────────────────────────────────
 
@@ -268,9 +269,8 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
-      const days = parseInt(dateRange.replace(/\D/g, ''), 10) || 30
       try {
-        const data = await getOrdersByChannel(token.shopDomain, token.accessToken, days)
+        const data = await getOrdersByChannel(token.shopDomain, token.accessToken, currentWindow(dateRange))
         return { data, shopDomain: token.shopDomain, source: 'shopify_api' }
       } catch (err: any) {
         app.log.error({ err: err.message, clientId }, 'Shopify orders-by-channel query failed')
@@ -288,9 +288,8 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
-      const days = parseInt(dateRange.replace(/\D/g, ''), 10) || 30
       try {
-        const sessions = await getMetaSessions(token.shopDomain, token.accessToken, days)
+        const sessions = await getMetaSessions(token.shopDomain, token.accessToken, currentWindow(dateRange))
         return { sessions, shopDomain: token.shopDomain, source: 'shopify_api' }
       } catch (err: any) {
         app.log.error({ err: err.message, clientId }, 'Shopify meta-sessions query failed')
@@ -308,9 +307,8 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
       const token = await resolveShopifyToken(clientId)
       if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
 
-      const days = parseInt(dateRange.replace(/\D/g, ''), 10) || 30
       try {
-        const data = await getSalesByCountry(token.shopDomain, token.accessToken, days)
+        const data = await getSalesByCountry(token.shopDomain, token.accessToken, currentWindow(dateRange))
         return { data, shopDomain: token.shopDomain, source: 'shopify_api' }
       } catch (err: any) {
         app.log.error({ err: err.message, clientId }, 'Shopify sales-by-country query failed')
@@ -333,6 +331,57 @@ export async function shopifyDataRoutes(app: FastifyInstance) {
         return { countries }
       } catch (err: any) {
         app.log.error({ err: err.message, clientId }, 'Shopify countries query failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // "Live view" summary bar — today vs. yesterday, same time-of-day cutoff.
+  // Not sub-second real-time (ShopifyQL has no live feed); the frontend polls
+  // this on an interval and labels it accordingly.
+  app.get<{ Querystring: { clientId?: string } }>(
+    '/today-summary',
+    async (request, reply) => {
+      const { clientId = 'default' } = request.query
+      assertClientAccess(request, clientId)
+      const token = await resolveShopifyToken(clientId)
+      if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
+
+      try {
+        const data = await getTodaySummary(token.shopDomain, token.accessToken)
+        return { data, shopDomain: token.shopDomain, source: 'shopify_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, clientId }, 'Shopify today-summary query failed')
+        return reply.code(500).send({ error: err.message })
+      }
+    }
+  )
+
+  // Order economics for the selected date range — AOV, units sold, refunded
+  // revenue — plus real period-over-period deltas vs. the equal-length prior
+  // window (never a fake 0%, consistent with the rest of this app's metrics).
+  app.get<{ Querystring: { clientId?: string; dateRange?: string } }>(
+    '/order-summary',
+    async (request, reply) => {
+      const { clientId = 'default', dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
+      const token = await resolveShopifyToken(clientId)
+      if (!token) return reply.code(401).send({ error: 'Shopify not connected for this client' })
+
+      try {
+        const [current, previous] = await Promise.all([
+          getOrderSummary(token.shopDomain, token.accessToken, currentWindow(dateRange)),
+          getOrderSummary(token.shopDomain, token.accessToken, previousWindow(dateRange)),
+        ])
+        const deltas = {
+          orders: pctChange(current.orders, previous.orders),
+          averageOrderValue: pctChange(current.averageOrderValue, previous.averageOrderValue),
+          unitsSold: pctChange(current.unitsSold, previous.unitsSold),
+          returnsValue: pctChange(current.returnsValue, previous.returnsValue),
+        }
+        return { data: { current, previous, deltas }, shopDomain: token.shopDomain, source: 'shopify_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, clientId }, 'Shopify order-summary query failed')
         return reply.code(500).send({ error: err.message })
       }
     }

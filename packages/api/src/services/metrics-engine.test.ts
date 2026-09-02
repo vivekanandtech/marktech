@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { derivePeriodMetrics, metaReportedRevenueOf } from './metrics-engine'
+import { derivePeriodMetrics } from './metrics-engine'
 import { AttributionChannel, ChannelTotals } from './shopify'
 
 const emptyChannels: Record<AttributionChannel, ChannelTotals> = {
@@ -18,6 +18,7 @@ function baseInput(overrides: Partial<Parameters<typeof derivePeriodMetrics>[0]>
     googleReportedRevenue: 0,
     channelTotals: emptyChannels,
     metaSessions: 0,
+    totalSessions: 0,
     newCustomerCount: 0,
     newCustomerDataAvailable: false,
     nCACSourceApproximate: false,
@@ -25,23 +26,6 @@ function baseInput(overrides: Partial<Parameters<typeof derivePeriodMetrics>[0]>
   }
 }
 
-describe('metaReportedRevenueOf', () => {
-  it('sums only purchase-type action_values, ignoring other action types', () => {
-    const ins = {
-      action_values: [
-        { action_type: 'omni_purchase', value: '1000' },
-        { action_type: 'link_click', value: '999999' }, // must be excluded
-        { action_type: 'purchase', value: '500.5' },
-      ],
-    }
-    expect(metaReportedRevenueOf(ins)).toBeCloseTo(1500.5)
-  })
-
-  it('returns 0 when action_values is missing or malformed', () => {
-    expect(metaReportedRevenueOf({})).toBe(0)
-    expect(metaReportedRevenueOf({ action_values: null })).toBe(0)
-  })
-})
 
 describe('derivePeriodMetrics — real observed case (dohar-india, 30D window)', () => {
   it('reproduces the live-verified numbers within rounding', () => {
@@ -130,5 +114,56 @@ describe('derivePeriodMetrics — blending across channels', () => {
   it('sourceConfidence reflects the nCAC sampling flag', () => {
     expect(derivePeriodMetrics(baseInput({ nCACSourceApproximate: true })).sourceConfidence).toBe('approximate')
     expect(derivePeriodMetrics(baseInput({ nCACSourceApproximate: false })).sourceConfidence).toBe('exact')
+  })
+})
+
+describe('derivePeriodMetrics — per-platform ROAS', () => {
+  it('metaRoas and googleRoas use each platform\'s OWN claimed revenue, not Shopify truth', () => {
+    const result = derivePeriodMetrics(baseInput({
+      metaSpend: 100, metaReportedRevenue: 450,
+      googleSpend: 50, googleReportedRevenue: 100,
+    }))
+    expect(result.metaRoas).toBeCloseTo(4.5)
+    expect(result.googleRoas).toBeCloseTo(2)
+  })
+
+  it('blendedRoas is the same truth-based number as mer, just under ROAS naming', () => {
+    const result = derivePeriodMetrics(baseInput({
+      metaSpend: 100, googleSpend: 100,
+      channelTotals: { ...emptyChannels, direct: { orders: 1, netSales: 300 } },
+    }))
+    expect(result.blendedRoas).toBe(result.mer)
+    expect(result.blendedRoas).toBeCloseTo(1.5) // 300 / 200
+  })
+
+  it('platform ROAS is 0 (not Infinity) with zero spend on that platform', () => {
+    const result = derivePeriodMetrics(baseInput({ metaReportedRevenue: 5000 }))
+    expect(result.metaRoas).toBe(0)
+    expect(result.googleRoas).toBe(0)
+  })
+})
+
+describe('derivePeriodMetrics — conversion rate', () => {
+  it('conversionRate is total orders across every channel divided by total sessions, as a percentage', () => {
+    const result = derivePeriodMetrics(baseInput({
+      totalSessions: 1000,
+      channelTotals: {
+        meta: { orders: 10, netSales: 0 },
+        google: { orders: 5, netSales: 0 },
+        direct: { orders: 3, netSales: 0 },
+        organic: { orders: 1, netSales: 0 },
+        other: { orders: 1, netSales: 0 },
+      },
+    }))
+    expect(result.totalOrders).toBe(20)
+    expect(result.conversionRate).toBeCloseTo(2) // 20/1000 * 100
+  })
+
+  it('conversionRate is 0 (not Infinity/NaN) with zero sessions', () => {
+    const result = derivePeriodMetrics(baseInput({
+      channelTotals: { ...emptyChannels, direct: { orders: 5, netSales: 0 } },
+    }))
+    expect(result.conversionRate).toBe(0)
+    expect(Number.isFinite(result.conversionRate)).toBe(true)
   })
 })

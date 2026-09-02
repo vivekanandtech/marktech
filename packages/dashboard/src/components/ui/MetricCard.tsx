@@ -20,10 +20,14 @@ interface MetricCardProps {
   metricId?: string
   // Optional good/watch/bad accent dot next to the label, vs. a hardcoded target.
   status?: MetricStatus | null
+  // Overrides the default "vs prev {dateRange}" comparison text — for tiles
+  // that compare against something other than the page's selected date range
+  // (e.g. a "today vs yesterday" live-view tile).
+  compareLabel?: string
 }
 
 export function MetricCard({
-  label, value, change, improving, icon, subtitle, highlight = false, size = 'md', className, metricId, status,
+  label, value, change, improving, icon, subtitle, highlight = false, size = 'md', className, metricId, status, compareLabel,
 }: MetricCardProps) {
   const dateRange = useFilterStore((s) => s.dateRange)
 
@@ -76,7 +80,7 @@ export function MetricCard({
 
       <div className="flex items-center gap-1.5">
         <TrendBadge change={change} improving={improving} />
-        <span className="text-[11px] t3">vs prev {dateRange}</span>
+        <span className="text-[11px] t3">vs {compareLabel ?? `prev ${dateRange}`}</span>
       </div>
     </div>
   )

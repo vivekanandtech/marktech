@@ -5,6 +5,7 @@ import { AdminLayout } from '@/components/layout/AdminLayout'
 import { LoginPage } from '@/pages/LoginPage'
 import { PrivacyPolicyPage } from '@/pages/PrivacyPolicyPage'
 import { OverviewPage } from '@/pages/OverviewPage'
+import { ProductsPage } from '@/pages/ProductsPage'
 import { MetaAdsPage } from '@/pages/MetaAdsPage'
 import { GoogleAdsPage } from '@/pages/GoogleAdsPage'
 import { ShopifyPage } from '@/pages/ShopifyPage'
@@ -139,6 +140,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="/overview" replace />} />
           <Route path="overview" element={<OverviewPage />} />
+          <Route path="products" element={<ProductsPage />} />
           <Route path="meta" element={<MetaAdsPage />} />
           <Route path="google" element={<GoogleAdsPage />} />
           <Route path="shopify" element={<ShopifyPage />} />

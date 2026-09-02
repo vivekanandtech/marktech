@@ -214,6 +214,19 @@ export const BASE_INSIGHT_FIELDS = [
   'cpm', 'ctr', 'cpp', 'actions', 'action_values',
 ]
 
+// Fields needed to classify a creative as video/carousel/image and render a
+// thumbnail. Verified live against this account's real ads: `video_id` is
+// NOT reliably present at the top level (it lives under
+// object_story_spec.video_data instead), and this account's multi-asset ads
+// use Advantage+ `asset_feed_spec.videos/images` rather than the classic
+// `link_data.child_attachments` carousel shape — both must be checked.
+export const CREATIVE_FIELDS = [
+  'id', 'thumbnail_url', 'image_url', 'image_hash', 'video_id', 'object_type',
+  'effective_object_story_id',
+  'object_story_spec{link_data{picture,link,child_attachments},photo_data{images},video_data{image_url,video_id}}',
+  'asset_feed_spec{videos,images}',
+].join(',')
+
 // Only request the id/name fields for the level being queried. Requesting
 // e.g. ad_id/ad_name at level=campaign makes Meta return one row per ad
 // (each with only that ad's slice of spend) instead of one aggregated row
@@ -314,7 +327,7 @@ export async function getCampaignDetail(
   const previousTimeRangeParam = encodeURIComponent(JSON.stringify(previousWindow(dateRange)))
 
   const adsetFields = `id,name,campaign_id,status,daily_budget,targeting,effective_status,insights{${insightFields}}`
-  const adFields    = `id,name,status,adset_id,campaign_id,effective_status,insights{${insightFields}}`
+  const adFields    = `id,name,status,adset_id,campaign_id,effective_status,creative{${CREATIVE_FIELDS}},insights{${insightFields}}`
 
   const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
     try { return await fn() }
@@ -432,14 +445,9 @@ export async function getTopAds(adAccountId: string, token: string, limit = 25):
   const adDataMap: Record<string, any> = {}
   for (let i = 0; i < topInsights.length; i += CHUNK) {
     const chunk = topInsights.slice(i, i + CHUNK)
-    const creativeFields = [
-      'id', 'thumbnail_url', 'image_url', 'image_hash', 'video_id', 'object_type',
-      'effective_object_story_id',
-      'object_story_spec{link_data{picture,link},photo_data{images},video_data{image_url}}',
-    ].join(',')
     const adParams = new URLSearchParams({
       ids: chunk.map((ins: any) => ins.ad_id).join(','),
-      fields: `id,name,status,effective_status,creative{${creativeFields}}`,
+      fields: `id,name,status,effective_status,creative{${CREATIVE_FIELDS}}`,
       access_token: token,
     })
     const adRes = await fetch(`${GRAPH}/?${adParams}`)

@@ -1,16 +1,121 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Loader2, AlertTriangle, Link2, Lightbulb } from 'lucide-react'
+import { Loader2, AlertTriangle, Link2, Lightbulb, Video, LayoutGrid, Image as ImageIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { CreativeCard } from '@/components/creatives/CreativeCard'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { useMetaCreatives } from '@/hooks/useMetaData'
 import { getCreatives } from '@/lib/mock-data'
-import { transformInsightMetrics, safeFloat } from '@/lib/meta-transform'
+import { transformInsightMetrics, safeFloat, classifyCreativeFormat, CreativeFormat } from '@/lib/meta-transform'
+import { sumActionCount, sumActionValue, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
+import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { useInsightsStore } from '@/store/insightsStore'
 
 type SortKey = 'roas' | 'spend' | 'ctr' | 'trend'
+type FormatFilter = 'all' | CreativeFormat
+
+const FORMAT_FILTERS: { value: FormatFilter; label: string }[] = [
+  { value: 'all',      label: 'All formats' },
+  { value: 'video',    label: 'Video' },
+  { value: 'carousel', label: 'Carousel' },
+  { value: 'image',    label: 'Image' },
+]
+
+const FORMAT_ROLLUP_ORDER: CreativeFormat[] = ['video', 'carousel', 'image']
+const FORMAT_ROLLUP_ICON: Record<CreativeFormat, React.ElementType> = {
+  video: Video, carousel: LayoutGrid, image: ImageIcon,
+}
+const FORMAT_ROLLUP_LABEL: Record<CreativeFormat, string> = {
+  video: 'Video', carousel: 'Carousel', image: 'Image',
+}
+
+interface FormatRollupRow {
+  format: CreativeFormat
+  count: number
+  spend: number
+  roas: number
+  ctr: number
+  conversions: number
+}
+
+// Aggregates must be recomputed from summed totals, not averaged per-ad —
+// averaging individual ROAS/CTR values would overweight low-spend ads.
+function computeFormatRollup(rawAds: any[]): FormatRollupRow[] {
+  const totals: Record<CreativeFormat, { spend: number; conversionValue: number; clicks: number; impressions: number; conversions: number; count: number }> = {
+    video:    { spend: 0, conversionValue: 0, clicks: 0, impressions: 0, conversions: 0, count: 0 },
+    carousel: { spend: 0, conversionValue: 0, clicks: 0, impressions: 0, conversions: 0, count: 0 },
+    image:    { spend: 0, conversionValue: 0, clicks: 0, impressions: 0, conversions: 0, count: 0 },
+  }
+  for (const ad of rawAds) {
+    const ins = ad.insights?.data?.[0] ?? null
+    const format = classifyCreativeFormat(ad.creative)
+    const t = totals[format]
+    t.spend += safeFloat(ins?.spend)
+    t.conversionValue += sumActionValue(ins, PURCHASE_ACTION_TYPES)
+    t.clicks += safeFloat(ins?.clicks)
+    t.impressions += safeFloat(ins?.impressions)
+    t.conversions += sumActionCount(ins, PURCHASE_ACTION_TYPES)
+    t.count += 1
+  }
+  return FORMAT_ROLLUP_ORDER.map((format) => {
+    const t = totals[format]
+    return {
+      format,
+      count: t.count,
+      spend: t.spend,
+      roas: t.spend > 0 ? t.conversionValue / t.spend : 0,
+      ctr: t.impressions > 0 ? (t.clicks / t.impressions) * 100 : 0,
+      conversions: t.conversions,
+    }
+  })
+}
+
+function FormatRollup({ rawAds }: { rawAds: any[] }) {
+  const rollup = useMemo(() => computeFormatRollup(rawAds), [rawAds])
+  const totalSpend = rollup.reduce((s, r) => s + r.spend, 0)
+
+  if (rawAds.length === 0) return null
+
+  return (
+    <div className="card p-4">
+      <h3 className="text-sm font-semibold t1 mb-3">Performance by Creative Type</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {rollup.map((r) => {
+          const Icon = FORMAT_ROLLUP_ICON[r.format]
+          const share = totalSpend > 0 ? (r.spend / totalSpend) * 100 : 0
+          return (
+            <div key={r.format} className="rounded-xl border border-theme p-3 bg-surface-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="flex items-center gap-1.5 text-xs font-semibold t1">
+                  <Icon size={13} /> {FORMAT_ROLLUP_LABEL[r.format]}
+                </span>
+                <span className="text-[10px] t3">{r.count} ad{r.count !== 1 ? 's' : ''} · {share.toFixed(0)}% of spend</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-sm font-bold t1">{r.spend > 0 ? formatCurrency(r.spend) : '—'}</p>
+                  <p className="text-[10px] t3">Spend</p>
+                </div>
+                <div>
+                  <p className={clsx('text-sm font-bold', r.roas <= 0 ? 't3' : r.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : r.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
+                    {r.spend > 0 ? formatRoas(r.roas) : '—'}
+                  </p>
+                  <p className="text-[10px] t3">ROAS</p>
+                </div>
+                <div>
+                  <p className="text-sm font-bold t1">{r.spend > 0 ? formatPercent(r.ctr) : '—'}</p>
+                  <p className="text-[10px] t3">CTR</p>
+                </div>
+              </div>
+              <p className="text-[10px] t3 mt-1.5 text-center">{formatNumber(r.conversions)} conversions</p>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: 'roas',  label: 'ROAS' },
@@ -25,11 +130,7 @@ function transformRawAd(ad: any) {
   const ins = ad.insights?.data?.[0] ?? null
   const metrics = transformInsightMetrics(ins)
   const creative = ad.creative ?? {}
-  const format = creative.video_id
-    ? 'video'
-    : creative.object_type === 'SHARE'
-    ? 'carousel'
-    : 'image'
+  const format = classifyCreativeFormat(creative)
   // _imageUrl and _previewUrl are pre-resolved by the API's pickBestImage/buildPreviewUrl helpers
   const thumbnailUrl = creative._imageUrl ?? creative.image_url ?? creative.thumbnail_url ?? ''
   const previewUrl   = creative._previewUrl ?? ''
@@ -59,13 +160,14 @@ function ConnectedView() {
   const [sortBy, setSortBy] = useState<SortKey>('roas')
   const [filterFatigue, setFilterFatigue] = useState(false)
   const [filterTop, setFilterTop] = useState(false)
+  const [formatFilter, setFormatFilter] = useState<FormatFilter>('all')
 
   const { data: rawAds, loading, error } = useMetaCreatives()
   const accountInsights = useInsightsStore((s) => s.insights.filter((i) => i.entityType === 'account'))
 
   const allCreatives = rawAds.map(transformRawAd)
   const creatives = allCreatives
-    .filter((c) => (!filterFatigue || c.fatigueRisk) && (!filterTop || c.isTopPerformer))
+    .filter((c) => (!filterFatigue || c.fatigueRisk) && (!filterTop || c.isTopPerformer) && (formatFilter === 'all' || c.format === formatFilter))
     .sort((a, b) => (b[sortBy] as number) - (a[sortBy] as number))
 
   return (
@@ -92,6 +194,18 @@ function ConnectedView() {
           </button>
           <div className="w-px h-5 bg-surface-3" />
           <div className="flex items-center gap-1 bg-surface-2 border border-theme rounded-lg p-0.5">
+            {FORMAT_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setFormatFilter(f.value)}
+                className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors', formatFilter === f.value ? 'bg-indigo-600 text-white shadow-sm' : 't2 hover:t1')}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <div className="w-px h-5 bg-surface-3" />
+          <div className="flex items-center gap-1 bg-surface-2 border border-theme rounded-lg p-0.5">
             <span className="px-2 text-[10px] t3 font-medium">Sort by</span>
             {SORT_OPTIONS.map((o) => (
               <button
@@ -111,6 +225,8 @@ function ConnectedView() {
           <AlertTriangle size={15} /> Failed to load creatives: {error}
         </div>
       )}
+
+      {!loading && rawAds.length > 0 && <FormatRollup rawAds={rawAds} />}
 
       {accountInsights.length > 0 && (
         <div className="space-y-2">

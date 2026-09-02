@@ -24,6 +24,12 @@ export interface PeriodMetrics {
   metaOverClaimMultiplier: number
   googleOverClaimMultiplier: number
   sourceConfidence: 'exact' | 'approximate'
+  metaRoas: number
+  googleRoas: number
+  blendedRoas: number
+  totalSessions: number
+  totalOrders: number
+  conversionRate: number
 }
 
 export interface OverviewMetricsResponse {

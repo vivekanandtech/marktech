@@ -1,22 +1,25 @@
 import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
-import { formatCurrency, formatRoas, formatPercent } from '@/lib/formatters'
+import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { TrendBadge } from '@/components/ui/TrendBadge'
+import { FunnelHoverCard } from '@/components/ui/FunnelHoverCard'
 import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
 import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdRow } from './AdRow'
 import { adsetManagerUrl } from '@/lib/meta-links'
-import { MetricTrend, isMetricImproving } from '@/lib/meta-transform'
+import { MetricTrend, isMetricImproving, MetaFunnelCounts } from '@/lib/meta-transform'
 
 interface AdSet {
   id: string; name: string; audience: string; status: string
   spend: number; roas: number; ctr: number; cpa: number; cpc: number
   impressions: number; clicks: number; conversions: number; frequency: number
-  actionTag: string; trend: MetricTrend | null; ads: any[]
+  actionTag: string; trend: MetricTrend | null; ads: any[]; funnel?: MetaFunnelCounts
 }
 
-export function AdSetRow({ adSet, adAccountId }: { adSet: AdSet; adAccountId?: string | null }) {
+export function AdSetRow({
+  adSet, adAccountId, showFunnel = false, isGoogle = false,
+}: { adSet: AdSet; adAccountId?: string | null; showFunnel?: boolean; isGoogle?: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const metaUrl = adAccountId ? adsetManagerUrl(adAccountId, adSet.id) : null
 
@@ -57,9 +60,11 @@ export function AdSetRow({ adSet, adAccountId }: { adSet: AdSet; adAccountId?: s
         </td>
 
         <td className="px-3 py-2.5 text-right text-xs">
-          <p className={clsx('font-bold', adSet.roas <= 0 ? 't3' : adSet.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : adSet.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
-            {formatRoas(adSet.roas)}
-          </p>
+          <FunnelHoverCard funnel={adSet.funnel}>
+            <p className={clsx('font-bold', adSet.roas <= 0 ? 't3' : adSet.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : adSet.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
+              {formatRoas(adSet.roas)}
+            </p>
+          </FunnelHoverCard>
           {adSet.trend && <TrendBadge change={adSet.trend.roasPct ?? 0} improving={isMetricImproving('roas', adSet.trend.roasPct ?? 0)} size="sm" />}
         </td>
 
@@ -71,9 +76,24 @@ export function AdSetRow({ adSet, adAccountId }: { adSet: AdSet; adAccountId?: s
           {formatCurrency(adSet.cpa)}
           {adSet.trend && <div><TrendBadge change={adSet.trend.cpaPct ?? 0} improving={isMetricImproving('cpa', adSet.trend.cpaPct ?? 0)} size="sm" /></div>}
         </td>
+        {showFunnel && (
+          isGoogle ? (
+            <>
+              <td className="px-3 py-2.5 text-right text-xs t3">–</td>
+              <td className="px-3 py-2.5 text-right text-xs t3">–</td>
+              <td className="px-3 py-2.5 text-right text-xs t3">–</td>
+            </>
+          ) : (
+            <>
+              <td className="px-3 py-2.5 text-right text-xs t3">{formatNumber(adSet.funnel?.addToCart ?? 0)}</td>
+              <td className="px-3 py-2.5 text-right text-xs t3">{formatNumber(adSet.funnel?.initiateCheckout ?? 0)}</td>
+              <td className="px-3 py-2.5 text-right text-xs t3">{formatNumber(adSet.funnel?.addPaymentInfo ?? 0)}</td>
+            </>
+          )
+        )}
       </tr>
 
-      {expanded && adSet.ads.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} />)}
+      {expanded && adSet.ads.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} />)}
     </>
   )
 }

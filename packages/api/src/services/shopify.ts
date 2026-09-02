@@ -1,4 +1,5 @@
 import { getPool } from '../lib/db'
+import { DateWindow, pctChange } from '../lib/dateWindows'
 
 const SHOPIFY_API_VERSION = '2026-07'
 
@@ -193,12 +194,12 @@ export function classifyChannel(referringChannel: string, utmMedium: string, utm
 export async function getOrdersByChannel(
   shopDomain: string,
   accessToken: string,
-  days: number
+  window: DateWindow
 ): Promise<Record<AttributionChannel, ChannelTotals>> {
   const query =
     `FROM sales SHOW orders, total_sales ` +
     `GROUP BY referring_channel, utm_medium, utm_source WITH LAST_CLICK_ATTRIBUTION ` +
-    `SINCE -${days}d UNTIL today`
+    `SINCE ${window.since} UNTIL ${window.until}`
 
   const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
   const rcIdx = columns.findIndex((c) => c.name === 'referring_channel')
@@ -224,11 +225,11 @@ export async function getOrdersByChannel(
   return totals
 }
 
-export async function getMetaSessions(shopDomain: string, accessToken: string, days: number): Promise<number> {
+export async function getMetaSessions(shopDomain: string, accessToken: string, window: DateWindow): Promise<number> {
   const query =
     `FROM sessions SHOW sessions ` +
     `GROUP BY utm_source, referrer_name ` +
-    `SINCE -${days}d UNTIL today`
+    `SINCE ${window.since} UNTIL ${window.until}`
 
   const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
   const srcIdx = columns.findIndex((c) => c.name === 'utm_source')
@@ -246,22 +247,220 @@ export async function getMetaSessions(shopDomain: string, accessToken: string, d
   return total
 }
 
-export async function getNetRevenueByDay(shopDomain: string, accessToken: string, days: number): Promise<ShopifyQLResult> {
+// All-channel sessions — unlike getMetaSessions (deliberately filtered to
+// Meta-attributed traffic only), this is the real denominator for a genuine
+// site-wide conversion rate.
+export async function getTotalSessions(shopDomain: string, accessToken: string, window: DateWindow): Promise<number> {
+  const query = `FROM sessions SHOW sessions SINCE ${window.since} UNTIL ${window.until}`
+  const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
+  const idx = columns.findIndex((c) => c.name === 'sessions')
+  return Number(rows[0]?.[idx]) || 0
+}
+
+// "Live view" summary bar — today so far vs. the same not-yet-complete window
+// yesterday. Not real-time (ShopifyQL has no sub-second feed): each call is a
+// fresh snapshot, so the frontend polls this on an interval and the UI labels
+// it "as of a few minutes ago" rather than claiming literal live data.
+export interface TodaySummaryMetric {
+  metric: 'visitors' | 'sessions' | 'orders' | 'totalSales'
+  label: string
+  today: number
+  yesterday: number
+  pctChange: number
+}
+
+export async function getTodaySummary(shopDomain: string, accessToken: string): Promise<TodaySummaryMetric[]> {
+  const [todaySessions, yesterdaySessions, todaySales, yesterdaySales] = await Promise.all([
+    runShopifyQL(shopDomain, accessToken, `FROM sessions SHOW sessions, online_store_visitors SINCE today UNTIL today`),
+    runShopifyQL(shopDomain, accessToken, `FROM sessions SHOW sessions, online_store_visitors SINCE yesterday UNTIL yesterday`),
+    runShopifyQL(shopDomain, accessToken, `FROM sales SHOW orders, total_sales SINCE today UNTIL today`),
+    runShopifyQL(shopDomain, accessToken, `FROM sales SHOW orders, total_sales SINCE yesterday UNTIL yesterday`),
+  ])
+
+  const readCol = (res: ShopifyQLResult, name: string) => {
+    const idx = res.columns.findIndex((c) => c.name === name)
+    return Number(res.rows[0]?.[idx]) || 0
+  }
+
+  const todayVisitors = readCol(todaySessions, 'online_store_visitors')
+  const yesterdayVisitors = readCol(yesterdaySessions, 'online_store_visitors')
+  const todaySessionCount = readCol(todaySessions, 'sessions')
+  const yesterdaySessionCount = readCol(yesterdaySessions, 'sessions')
+  const todayOrders = readCol(todaySales, 'orders')
+  const yesterdayOrders = readCol(yesterdaySales, 'orders')
+  const todayTotalSales = readCol(todaySales, 'total_sales')
+  const yesterdayTotalSales = readCol(yesterdaySales, 'total_sales')
+
+  return [
+    { metric: 'visitors', label: 'Visitors', today: todayVisitors, yesterday: yesterdayVisitors, pctChange: pctChange(todayVisitors, yesterdayVisitors) },
+    { metric: 'sessions', label: 'Sessions', today: todaySessionCount, yesterday: yesterdaySessionCount, pctChange: pctChange(todaySessionCount, yesterdaySessionCount) },
+    { metric: 'orders', label: 'Orders', today: todayOrders, yesterday: yesterdayOrders, pctChange: pctChange(todayOrders, yesterdayOrders) },
+    { metric: 'totalSales', label: 'Total Sales', today: todayTotalSales, yesterday: yesterdayTotalSales, pctChange: pctChange(todayTotalSales, yesterdayTotalSales) },
+  ]
+}
+
+// Order-economics summary for the page's selected date range — average order
+// value, units sold, and refunded revenue. Verified live against ShopifyQL:
+// there is no per-unit "return quantity" field on the sales table (only the
+// dollar-value `returns` column), so this reports refunded revenue, not a
+// returned-units count.
+export interface OrderSummary {
+  orders: number
+  averageOrderValue: number
+  unitsSold: number
+  returnsValue: number
+}
+
+export async function getOrderSummary(shopDomain: string, accessToken: string, window: DateWindow): Promise<OrderSummary> {
+  const query =
+    `FROM sales SHOW orders, average_order_value, net_items_sold, returns ` +
+    `SINCE ${window.since} UNTIL ${window.until}`
+  const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
+  const idx = (name: string) => columns.findIndex((c) => c.name === name)
+  return {
+    orders: Number(rows[0]?.[idx('orders')]) || 0,
+    averageOrderValue: Number(rows[0]?.[idx('average_order_value')]) || 0,
+    unitsSold: Number(rows[0]?.[idx('net_items_sold')]) || 0,
+    returnsValue: Number(rows[0]?.[idx('returns')]) || 0,
+  }
+}
+
+export async function getNetRevenueByDay(shopDomain: string, accessToken: string, window: DateWindow): Promise<ShopifyQLResult> {
   const query =
     `FROM sales SHOW net_sales ` +
     `GROUP BY day ` +
     `TIMESERIES day ` +
-    `SINCE -${days}d UNTIL today`
+    `SINCE ${window.since} UNTIL ${window.until}`
   return runShopifyQL(shopDomain, accessToken, query)
 }
 
-export async function getSalesByCountry(shopDomain: string, accessToken: string, days: number): Promise<ShopifyQLResult> {
+export async function getSalesByCountry(shopDomain: string, accessToken: string, window: DateWindow): Promise<ShopifyQLResult> {
   const query =
     `FROM sales SHOW orders, net_sales ` +
     `GROUP BY billing_country ` +
-    `SINCE -${days}d UNTIL today ` +
+    `SINCE ${window.since} UNTIL ${window.until} ` +
     `ORDER BY net_sales DESC`
   return runShopifyQL(shopDomain, accessToken, query)
+}
+
+// Per-product revenue/orders/units — verified live: `FROM products` is NOT a
+// valid ShopifyQL dataset on this store ("Schema Error: Invalid dataset in
+// FROM clause"), despite it existing in Shopify's public ShopifyQL docs for
+// some plans. `sales` grouped by product_id/product_title works reliably and
+// is the real source of truth here. There is no per-product session/cart/
+// checkout funnel available via ShopifyQL on this store — only revenue-side
+// data, not the views→cart→checkout funnel a `products` table would give.
+export interface ProductPerformance {
+  productId: string
+  productTitle: string
+  netSales: number
+  orders: number
+  unitsSold: number
+}
+
+export async function getProductPerformance(shopDomain: string, accessToken: string, window: DateWindow): Promise<ProductPerformance[]> {
+  const query =
+    `FROM sales SHOW net_sales, orders, net_items_sold ` +
+    `GROUP BY product_id, product_title ` +
+    `SINCE ${window.since} UNTIL ${window.until} ` +
+    `ORDER BY net_sales DESC`
+  const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
+  const idx = (name: string) => columns.findIndex((c) => c.name === name)
+  const productIdIdx = idx('product_id')
+  const titleIdx = idx('product_title')
+  const salesIdx = idx('net_sales')
+  const ordersIdx = idx('orders')
+  const unitsIdx = idx('net_items_sold')
+  return rows
+    .filter((r) => r[productIdIdx])
+    .map((r) => ({
+      productId: r[productIdIdx],
+      productTitle: r[titleIdx] || 'Untitled product',
+      netSales: Number(r[salesIdx]) || 0,
+      orders: Number(r[ordersIdx]) || 0,
+      unitsSold: Number(r[unitsIdx]) || 0,
+    }))
+}
+
+// ─── Per-product session funnel (sessions / add-to-cart / checkouts) ─────────
+// Verified live: the `sessions` table has no `product_id`/`product_title`
+// GROUP BY dimension (confirmed: "Invalid Query Column"), but genuinely does
+// have real per-product-PAGE funnel data when grouped by `landing_page_path`
+// (which Shopify sets to `/products/{handle}` for product pages) —
+// `sessions`, `added_to_cart_rate`, and `sessions_that_reached_checkout` all
+// return real nonzero numbers this way. There is no `product_id` column on
+// this table to join with directly, so the handle in the URL is resolved to
+// a real product id via the REST Admin API's product catalog (paginated via
+// the Link header) and cached, since handles rarely change.
+//
+// This is genuine, unattributed site traffic — "sessions without ad spend
+// behind them" — not a substitute for Meta/Google session counts.
+export interface ProductSessionFunnel {
+  sessions: number
+  addToCart: number
+  checkoutsInitiated: number
+}
+
+const productHandleMapCache = new Map<string, { map: Map<string, string>; fetchedAt: number }>()
+const PRODUCT_HANDLE_CACHE_TTL_MS = 60 * 60 * 1000
+
+async function getProductHandleMap(shopDomain: string, accessToken: string): Promise<Map<string, string>> {
+  const cached = productHandleMapCache.get(shopDomain)
+  if (cached && Date.now() - cached.fetchedAt < PRODUCT_HANDLE_CACHE_TTL_MS) return cached.map
+
+  const map = new Map<string, string>()
+  let url: string | null = `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250&fields=id,handle`
+  while (url) {
+    const resp: Response = await fetch(url, { headers: { 'X-Shopify-Access-Token': accessToken } })
+    if (!resp.ok) throw new Error(`Shopify products.json failed (${resp.status})`)
+    const json = await resp.json() as { products?: { id: number; handle: string }[] }
+    for (const p of json.products ?? []) map.set(p.handle, String(p.id))
+    const link = resp.headers.get('link')
+    const nextMatch = link ? /<([^>]+)>;\s*rel="next"/.exec(link) : null
+    url = nextMatch ? nextMatch[1] : null
+  }
+
+  productHandleMapCache.set(shopDomain, { map, fetchedAt: Date.now() })
+  return map
+}
+
+export async function getProductSessionFunnel(
+  shopDomain: string, accessToken: string, window: DateWindow
+): Promise<Record<string, ProductSessionFunnel>> {
+  const query =
+    `FROM sessions SHOW sessions, added_to_cart_rate, sessions_that_reached_checkout ` +
+    `WHERE landing_page_type = 'Product' ` +
+    `GROUP BY landing_page_path ` +
+    `SINCE ${window.since} UNTIL ${window.until}`
+
+  const [{ columns, rows }, handleMap] = await Promise.all([
+    runShopifyQL(shopDomain, accessToken, query),
+    getProductHandleMap(shopDomain, accessToken),
+  ])
+
+  const pathIdx = columns.findIndex((c) => c.name === 'landing_page_path')
+  const sessionsIdx = columns.findIndex((c) => c.name === 'sessions')
+  const cartRateIdx = columns.findIndex((c) => c.name === 'added_to_cart_rate')
+  const checkoutIdx = columns.findIndex((c) => c.name === 'sessions_that_reached_checkout')
+
+  const result: Record<string, ProductSessionFunnel> = {}
+  for (const row of rows) {
+    const path = row[pathIdx] ?? ''
+    const handle = path.replace(/^\/products\//, '').split('?')[0]
+    const productId = handleMap.get(handle)
+    if (!productId) continue  // page removed/renamed since — not guessable, skip rather than misattribute
+
+    const sessions = Number(row[sessionsIdx]) || 0
+    const cartRate = Number(row[cartRateIdx]) || 0
+    const checkouts = Number(row[checkoutIdx]) || 0
+
+    const existing = result[productId] ?? { sessions: 0, addToCart: 0, checkoutsInitiated: 0 }
+    existing.sessions += sessions
+    existing.addToCart += Math.round(sessions * cartRate)
+    existing.checkoutsInitiated += checkouts
+    result[productId] = existing
+  }
+  return result
 }
 
 // In-memory cache — the country list rarely changes, no need to hit Shopify on every dropdown open.

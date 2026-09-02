@@ -1,8 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { ShoppingBag, RefreshCw, AlertTriangle, Loader2, TrendingUp, MousePointerClick, Link2, Key, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ShoppingBag, RefreshCw, AlertTriangle, Loader2, TrendingUp, MousePointerClick, Link2, Key, Eye, Users, ShoppingCart, Wallet } from 'lucide-react'
 import { useClientStore } from '@/store/clientStore'
 import { useFilterStore } from '@/store/filterStore'
 import { useAuthStore } from '@/store/authStore'
+import { MetricCard } from '@/components/ui/MetricCard'
+import { TrendBadge } from '@/components/ui/TrendBadge'
+import { Pagination } from '@/components/ui/Pagination'
+import { formatCurrency, formatNumber } from '@/lib/formatters'
+
+// "Live view" bar polls on this interval — ShopifyQL has no push/streaming
+// feed, so this is the closest honest approximation of "live."
+const LIVE_VIEW_POLL_MS = 3 * 60 * 1000
 
 const API = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3001'
 
@@ -17,6 +25,27 @@ interface ShopifyColumn {
 interface ShopifyReport {
   columns: ShopifyColumn[]
   rows: string[][]
+}
+
+interface TodaySummaryMetric {
+  metric: 'visitors' | 'sessions' | 'orders' | 'totalSales'
+  label: string
+  today: number
+  yesterday: number
+  pctChange: number
+}
+
+interface OrderSummary {
+  orders: number
+  averageOrderValue: number
+  unitsSold: number
+  returnsValue: number
+}
+
+interface OrderSummaryResponse {
+  current: OrderSummary
+  previous: OrderSummary
+  deltas: Record<keyof OrderSummary, number>
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -182,6 +211,69 @@ function NotConnected({ clientId }: { clientId: string }) {
   )
 }
 
+// ─── Live view bar ─────────────────────────────────────────────────────────────
+
+const LIVE_VIEW_ICONS: Record<TodaySummaryMetric['metric'], React.ElementType> = {
+  visitors: Eye,
+  sessions: Users,
+  orders: ShoppingCart,
+  totalSales: Wallet,
+}
+
+function LiveViewBar({
+  metrics, loading, error, lastUpdated,
+}: {
+  metrics: TodaySummaryMetric[] | null
+  loading: boolean
+  error: string | null
+  lastUpdated: Date | null
+}) {
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+          </span>
+          <h3 className="text-sm font-semibold t1">Live View</h3>
+          <span className="text-[11px] t3">Today vs. yesterday, same time</span>
+        </div>
+        {lastUpdated && (
+          <span className="text-[11px] t3">
+            Updated {lastUpdated.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        )}
+      </div>
+      {error ? (
+        <p className="text-xs text-red-500">{error}</p>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {(metrics ?? []).map((m) => {
+            const Icon = LIVE_VIEW_ICONS[m.metric]
+            return (
+              <MetricCard
+                key={m.metric}
+                label={m.label}
+                value={m.metric === 'totalSales' ? formatCurrency(m.today) : formatNumber(m.today)}
+                change={m.pctChange}
+                improving={m.pctChange >= 0}
+                icon={<Icon size={15} />}
+                compareLabel="yesterday"
+              />
+            )
+          })}
+          {loading && !metrics && (
+            <div className="col-span-2 lg:col-span-4 flex items-center gap-2 justify-center py-6 t3 text-sm">
+              <Loader2 size={14} className="animate-spin" /> Loading today's numbers…
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Report table ─────────────────────────────────────────────────────────────
 
 const ROWS_PER_PAGE = 10
@@ -193,6 +285,7 @@ function ReportTable({
   loading,
   error,
   onRefresh,
+  trendBadge,
 }: {
   title: string
   icon: React.ElementType
@@ -200,18 +293,23 @@ function ReportTable({
   loading: boolean
   error: string | null
   onRefresh: () => void
+  // Optional trend shown at the right of the header, next to Refresh — used
+  // for a "vs yesterday" comparison that's independent of the page's
+  // selected date range (see the Sales by Hour usage below).
+  trendBadge?: React.ReactNode
 }) {
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(ROWS_PER_PAGE)
 
   // A fresh report (new date range, refresh, etc.) should always start back at page 1.
   useEffect(() => { setPage(0) }, [report])
 
   const totalRows = report?.rows.length ?? 0
-  const totalPages = Math.max(1, Math.ceil(totalRows / ROWS_PER_PAGE))
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
   const clampedPage = Math.min(page, totalPages - 1)
   const pagedRows = useMemo(
-    () => report ? report.rows.slice(clampedPage * ROWS_PER_PAGE, (clampedPage + 1) * ROWS_PER_PAGE) : [],
-    [report, clampedPage]
+    () => report ? report.rows.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize) : [],
+    [report, clampedPage, pageSize]
   )
 
   return (
@@ -226,14 +324,17 @@ function ReportTable({
             </span>
           )}
         </div>
-        <button
-          onClick={onRefresh}
-          disabled={loading}
-          className="flex items-center gap-1.5 text-xs font-medium t2 hover:t1 border border-theme px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
-        >
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          {trendBadge}
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-xs font-medium t2 hover:t1 border border-theme px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+          >
+            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -266,7 +367,7 @@ function ReportTable({
               <tbody className="divide-y divide-theme">
                 {pagedRows.map((row, ri) => (
                   <tr
-                    key={clampedPage * ROWS_PER_PAGE + ri}
+                    key={clampedPage * pageSize + ri}
                     className="hover:bg-surface-2 transition-colors"
                   >
                     {row.map((cell, ci) => (
@@ -280,32 +381,15 @@ function ReportTable({
             </table>
           </div>
 
-          {totalRows > ROWS_PER_PAGE && (
-            <div className="flex items-center justify-between px-4 py-2.5 border-t border-theme">
-              <span className="text-[11px] t3">
-                Showing {clampedPage * ROWS_PER_PAGE + 1}–{Math.min((clampedPage + 1) * ROWS_PER_PAGE, totalRows)} of {totalRows}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={clampedPage === 0}
-                  className="flex items-center justify-center w-7 h-7 rounded-lg border border-theme t2 hover:t1 hover:bg-surface-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  aria-label="Previous page"
-                >
-                  <ChevronLeft size={13} />
-                </button>
-                <span className="text-[11px] t2 font-medium px-1.5 min-w-[64px] text-center">
-                  Page {clampedPage + 1} of {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  disabled={clampedPage >= totalPages - 1}
-                  className="flex items-center justify-center w-7 h-7 rounded-lg border border-theme t2 hover:t1 hover:bg-surface-2 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  aria-label="Next page"
-                >
-                  <ChevronRight size={13} />
-                </button>
-              </div>
+          {totalRows > 0 && (
+            <div className="px-4 pb-2.5">
+              <Pagination
+                page={clampedPage}
+                totalItems={totalRows}
+                pageSize={pageSize}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+              />
             </div>
           )}
         </>
@@ -349,6 +433,17 @@ export function ShopifyPage() {
   const [salesLoading, setSalesLoading] = useState(false)
   const [salesError, setSalesError] = useState<string | null>(null)
 
+  // Live view (today vs yesterday) state
+  const [todaySummary, setTodaySummary] = useState<TodaySummaryMetric[] | null>(null)
+  const [todaySummaryLoading, setTodaySummaryLoading] = useState(false)
+  const [todaySummaryError, setTodaySummaryError] = useState<string | null>(null)
+  const [todaySummaryUpdatedAt, setTodaySummaryUpdatedAt] = useState<Date | null>(null)
+
+  // Order summary (AOV / units sold / returns) state — scoped to the page's date range
+  const [orderSummary, setOrderSummary] = useState<OrderSummaryResponse | null>(null)
+  const [orderSummaryLoading, setOrderSummaryLoading] = useState(false)
+  const [orderSummaryError, setOrderSummaryError] = useState<string | null>(null)
+
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
   const fetchSessions = useCallback(async () => {
@@ -388,13 +483,56 @@ export function ShopifyPage() {
     }
   }, [clientId, shopify?.connected, dateRange, salesChannel, token])
 
+  const fetchTodaySummary = useCallback(async () => {
+    if (!clientId || !shopify?.connected) return
+    setTodaySummaryLoading(true)
+    setTodaySummaryError(null)
+    try {
+      const r = await fetch(`${API}/api/shopify/today-summary?clientId=${encodeURIComponent(clientId)}`, { headers })
+      const json = await r.json()
+      if (json.error) throw new Error(json.error)
+      setTodaySummary(json.data)
+      setTodaySummaryUpdatedAt(new Date())
+    } catch (e: any) {
+      setTodaySummaryError(e.message)
+    } finally {
+      setTodaySummaryLoading(false)
+    }
+  }, [clientId, shopify?.connected, token])
+
+  const fetchOrderSummary = useCallback(async () => {
+    if (!clientId || !shopify?.connected) return
+    setOrderSummaryLoading(true)
+    setOrderSummaryError(null)
+    try {
+      const r = await fetch(`${API}/api/shopify/order-summary?clientId=${encodeURIComponent(clientId)}&dateRange=${dateRange}`, { headers })
+      const json = await r.json()
+      if (json.error) throw new Error(json.error)
+      setOrderSummary(json.data)
+    } catch (e: any) {
+      setOrderSummaryError(e.message)
+    } finally {
+      setOrderSummaryLoading(false)
+    }
+  }, [clientId, shopify?.connected, dateRange, token])
+
   // Fetch on mount and when connected / dateRange changes
   useEffect(() => {
     if (!shopify?.connected) return
     fetchSessions()
     fetchSales()
+    fetchOrderSummary()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shopify?.connected, clientId, dateRange])
+
+  // Live view polls independently of dateRange — it's always "today vs yesterday."
+  useEffect(() => {
+    if (!shopify?.connected) return
+    fetchTodaySummary()
+    const interval = setInterval(fetchTodaySummary, LIVE_VIEW_POLL_MS)
+    return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shopify?.connected, clientId])
 
   // ── Not connected ──
   if (!shopify?.connected) {
@@ -444,6 +582,14 @@ export function ShopifyPage() {
         </div>
       </div>
 
+      {/* Live View */}
+      <LiveViewBar
+        metrics={todaySummary}
+        loading={todaySummaryLoading}
+        error={todaySummaryError}
+        lastUpdated={todaySummaryUpdatedAt}
+      />
+
       {/* Sessions Report */}
       <ReportTable
         title="Sessions by Landing Page"
@@ -454,6 +600,49 @@ export function ShopifyPage() {
         onRefresh={() => { setSessionsReport(null); fetchSessions() }}
       />
 
+      {/* Order Summary — AOV / units sold / refunds for the selected date range */}
+      <div className="card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold t1">Order Summary</h3>
+          {orderSummaryError && <span className="text-xs text-red-500">{orderSummaryError}</span>}
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <MetricCard
+            label="Orders"
+            value={orderSummary ? formatNumber(orderSummary.current.orders) : '—'}
+            change={orderSummary?.deltas.orders ?? 0}
+            improving={(orderSummary?.deltas.orders ?? 0) >= 0}
+            icon={<ShoppingCart size={15} />}
+          />
+          <MetricCard
+            label="Avg Order Value"
+            value={orderSummary ? formatCurrency(orderSummary.current.averageOrderValue) : '—'}
+            change={orderSummary?.deltas.averageOrderValue ?? 0}
+            improving={(orderSummary?.deltas.averageOrderValue ?? 0) >= 0}
+            icon={<Wallet size={15} />}
+          />
+          <MetricCard
+            label="Units Sold"
+            value={orderSummary ? formatNumber(orderSummary.current.unitsSold) : '—'}
+            change={orderSummary?.deltas.unitsSold ?? 0}
+            improving={(orderSummary?.deltas.unitsSold ?? 0) >= 0}
+            icon={<ShoppingBag size={15} />}
+          />
+          <MetricCard
+            label="Refunded"
+            value={orderSummary ? formatCurrency(Math.abs(orderSummary.current.returnsValue)) : '—'}
+            change={orderSummary?.deltas.returnsValue ?? 0}
+            improving={(orderSummary?.deltas.returnsValue ?? 0) <= 0}
+            icon={<AlertTriangle size={15} />}
+          />
+          {orderSummaryLoading && !orderSummary && (
+            <div className="col-span-2 lg:col-span-4 flex items-center gap-2 justify-center py-4 t3 text-sm">
+              <Loader2 size={14} className="animate-spin" /> Loading order summary…
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Sales Report */}
       <ReportTable
         title="Sales by Hour"
@@ -462,6 +651,17 @@ export function ShopifyPage() {
         loading={salesLoading}
         error={salesError}
         onRefresh={() => { setSalesReport(null); fetchSales() }}
+        trendBadge={(() => {
+          const totalSalesToday = todaySummary?.find((m) => m.metric === 'totalSales')
+          if (!totalSalesToday) return null
+          return (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="t3">Today {formatCurrency(totalSalesToday.today)}</span>
+              <TrendBadge change={totalSalesToday.pctChange} improving={totalSalesToday.pctChange >= 0} />
+              <span className="t3">vs yesterday</span>
+            </div>
+          )
+        })()}
       />
     </div>
   )

@@ -1,5 +1,52 @@
 import { describe, it, expect } from 'vitest'
-import { safeFloat, safeInt, transformInsightMetrics, transformMetaAd, transformMetaAdSet, transformMetaCampaign, computeTrend, isMetricImproving } from './meta-transform'
+import { safeFloat, safeInt, transformInsightMetrics, transformMetaAd, transformMetaAdSet, transformMetaCampaign, computeTrend, isMetricImproving, classifyCreativeFormat } from './meta-transform'
+
+// Fixtures shaped like real ad creatives observed live on a connected Meta
+// account (2026-08) — not guessed. object_type was 'SHARE' on nearly every
+// ad regardless of actual content; video_id was absent at the top level for
+// genuine video ads; multi-asset ads used asset_feed_spec (Advantage+)
+// rather than the classic link_data.child_attachments carousel shape.
+describe('classifyCreativeFormat', () => {
+  it('classifies a real single-image ad (object_type SHARE, no other signals) as image, not carousel', () => {
+    expect(classifyCreativeFormat({ object_type: 'SHARE' })).toBe('image')
+  })
+
+  it('classifies object_type VIDEO as video even with no top-level video_id', () => {
+    expect(classifyCreativeFormat({ object_type: 'VIDEO' })).toBe('video')
+  })
+
+  it('classifies a creative with nested object_story_spec.video_data as video', () => {
+    expect(classifyCreativeFormat({ object_type: 'SHARE', object_story_spec: { video_data: { image_url: 'x' } } })).toBe('video')
+  })
+
+  it('classifies Advantage+ multi-video asset_feed_spec as video', () => {
+    expect(classifyCreativeFormat({ object_type: 'SHARE', asset_feed_spec: { videos: [{ id: '1' }, { id: '2' }] } })).toBe('video')
+  })
+
+  it('classifies Advantage+ multi-image asset_feed_spec (>1 image) as carousel', () => {
+    expect(classifyCreativeFormat({ object_type: 'SHARE', asset_feed_spec: { images: [{ hash: '1' }, { hash: '2' }] } })).toBe('carousel')
+  })
+
+  it('classifies classic link_data.child_attachments (>1) as carousel', () => {
+    expect(classifyCreativeFormat({ object_type: 'SHARE', object_story_spec: { link_data: { child_attachments: [{}, {}] } } })).toBe('carousel')
+  })
+
+  it('a single asset_feed_spec image (length 1) is not a carousel', () => {
+    expect(classifyCreativeFormat({ object_type: 'SHARE', asset_feed_spec: { images: [{ hash: '1' }] } })).toBe('image')
+  })
+
+  it('video signal takes priority over a multi-image signal on the same creative', () => {
+    expect(classifyCreativeFormat({
+      object_type: 'VIDEO',
+      asset_feed_spec: { images: [{ hash: '1' }, { hash: '2' }] },
+    })).toBe('video')
+  })
+
+  it('handles null/undefined creative without throwing', () => {
+    expect(classifyCreativeFormat(null)).toBe('image')
+    expect(classifyCreativeFormat(undefined)).toBe('image')
+  })
+})
 
 describe('safeFloat / safeInt', () => {
   it('parse numeric strings', () => {
@@ -150,10 +197,13 @@ describe('transformMetaAd / AdSet / Campaign — malformed input safety', () => 
 
   it('derives ad format from creative fields', () => {
     const videoAd = transformMetaAd({ id: 'a1', creative: { video_id: '123' }, insights: {} })
-    const carouselAd = transformMetaAd({ id: 'a2', creative: { object_type: 'SHARE' }, insights: {} })
+    // Verified live against a real ad account: object_type is 'SHARE' for the
+    // vast majority of ads regardless of actual content — it alone must NOT
+    // be read as "carousel", or every single-image ad gets misclassified.
+    const singleImageAd = transformMetaAd({ id: 'a2', creative: { object_type: 'SHARE' }, insights: {} })
     const imageAd = transformMetaAd({ id: 'a3', creative: {}, insights: {} })
     expect(videoAd?.format).toBe('video')
-    expect(carouselAd?.format).toBe('carousel')
+    expect(singleImageAd?.format).toBe('image')
     expect(imageAd?.format).toBe('image')
   })
 })

@@ -1,20 +1,15 @@
+import { PURCHASE_ACTION_TYPES, sumActionCount, sumActionValue, getFunnelCounts } from './meta-actions'
+export type { MetaFunnelCounts } from './meta-actions'
+
 export const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
 export const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
 
-const PURCHASE_ACTION_TYPES = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']
-
 function getConversions(ins: any): number {
-  const actions = Array.isArray(ins?.actions) ? ins.actions : []
-  return actions
-    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + safeInt(a.value), 0)
+  return sumActionCount(ins, PURCHASE_ACTION_TYPES)
 }
 
 function getConversionValue(ins: any): number {
-  const values = Array.isArray(ins?.action_values) ? ins.action_values : []
-  return values
-    .filter((a: any) => PURCHASE_ACTION_TYPES.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + safeFloat(a.value), 0)
+  return sumActionValue(ins, PURCHASE_ACTION_TYPES)
 }
 
 // Per-metric period-over-period change, shown inline next to each metric value
@@ -54,6 +49,32 @@ export function isMetricImproving(metric: 'spend' | 'roas' | 'ctr' | 'cpa', pct:
   return pct >= 0
 }
 
+export type CreativeFormat = 'video' | 'carousel' | 'image'
+
+// Verified live against this account's real ads (not guessed): `video_id` is
+// often absent at the top level of the creative — it lives under
+// object_story_spec.video_data.video_id instead — and `object_type` is
+// almost always 'SHARE' regardless of actual content, so it alone cannot
+// distinguish video/image/carousel. This account's multi-asset ads use
+// Advantage+ `asset_feed_spec.videos/images` rather than the classic
+// `link_data.child_attachments` carousel shape, so both are checked.
+export function classifyCreativeFormat(creative: any): CreativeFormat {
+  const cr = creative ?? {}
+  const hasVideo =
+    cr.object_type === 'VIDEO' ||
+    !!cr.video_id ||
+    !!cr.object_story_spec?.video_data ||
+    (Array.isArray(cr.asset_feed_spec?.videos) && cr.asset_feed_spec.videos.length > 0)
+  if (hasVideo) return 'video'
+
+  const hasMultipleAssets =
+    (Array.isArray(cr.object_story_spec?.link_data?.child_attachments) && cr.object_story_spec.link_data.child_attachments.length > 1) ||
+    (Array.isArray(cr.asset_feed_spec?.images) && cr.asset_feed_spec.images.length > 1)
+  if (hasMultipleAssets) return 'carousel'
+
+  return 'image'
+}
+
 export function transformInsightMetrics(ins: any) {
   const spend       = safeFloat(ins?.spend)
   const impressions = safeInt(ins?.impressions)
@@ -71,7 +92,9 @@ export function transformInsightMetrics(ins: any) {
     ? safeFloat(roasArr[0]?.value)
     : spend > 0 ? getConversionValue(ins) / spend : 0
 
-  return { spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc, conversions }
+  const funnel = getFunnelCounts(ins)
+
+  return { spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc, conversions, funnel }
 }
 
 function summarizeTargeting(targeting: any): string {
@@ -95,7 +118,7 @@ function deriveActionTag(roas: number): string {
 export function transformMetaAd(a: any) {
   try {
     const creative = a.creative ?? {}
-    const format = creative.video_id ? 'video' : creative.object_type === 'SHARE' ? 'carousel' : 'image'
+    const format = classifyCreativeFormat(creative)
     const metrics = transformInsightMetrics(a.insights)
     return {
       id: a.id ?? Math.random().toString(),

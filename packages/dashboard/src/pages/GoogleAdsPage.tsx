@@ -1,8 +1,9 @@
-import { DollarSign, TrendingUp, MousePointer, Target, Layers, Loader2, AlertTriangle, Link2, RefreshCw, ExternalLink } from 'lucide-react'
+import { IndianRupee, TrendingUp, MousePointer, Target, Layers, Loader2, AlertTriangle, Link2, RefreshCw, ExternalLink } from 'lucide-react'
 import clsx from 'clsx'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '@/components/ui/MetricCard'
+import { Pagination } from '@/components/ui/Pagination'
 import { CampaignTable } from '@/components/campaigns/CampaignTable'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
@@ -20,6 +21,8 @@ function ConnectedView() {
   const google = currentClient?.google
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused'>('all')
   const [channelFilter, setChannelFilter] = useState<string>('all')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(25)
 
   const { data: campaigns, accountInsights, loading, error, refresh } = useGoogleCampaigns()
 
@@ -46,6 +49,9 @@ function ConnectedView() {
   // shape Meta campaigns use — transform here rather than maintaining a
   // second, parallel table implementation.
   const transformedCampaigns = filtered.map(transformGoogleCampaign)
+  const totalPages = Math.max(1, Math.ceil(transformedCampaigns.length / pageSize))
+  const clampedPage = Math.min(page, totalPages - 1)
+  const paginatedCampaigns = transformedCampaigns.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize)
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -94,7 +100,7 @@ function ConnectedView() {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <MetricCard label="Google Spend" value={formatCurrency(totalSpend)} change={0} improving icon={<DollarSign size={15} />} />
+            <MetricCard label="Google Spend" value={formatCurrency(totalSpend)} change={0} improving icon={<IndianRupee size={15} />} />
             <MetricCard label="ROAS" value={avgRoas > 0 ? formatRoas(avgRoas) : '—'} change={0} improving icon={<TrendingUp size={15} />} highlight />
             <MetricCard label="Clicks" value={formatNumber(totalClicks)} change={0} improving icon={<MousePointer size={15} />} />
             <MetricCard label="Conversions" value={totalConvs > 0 ? totalConvs.toFixed(1) : '0'} change={0} improving icon={<Target size={15} />} />
@@ -109,7 +115,7 @@ function ConnectedView() {
                   Campaigns <span className="text-xs font-normal t3 ml-1">({filtered.length})</span>
                   {loading && <span className="ml-2 text-xs text-emerald-500 animate-pulse">Refreshing…</span>}
                 </h3>
-                <p className="text-xs t3 mt-0.5">Click to expand Ad Groups → Ads</p>
+                <p className="text-xs t3 mt-0.5">Page {clampedPage + 1} of {totalPages} · click to expand Ad Groups → Ads</p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Status filter */}
@@ -117,7 +123,7 @@ function ConnectedView() {
                   {(['all', 'active', 'paused'] as const).map((f) => (
                     <button
                       key={f}
-                      onClick={() => setStatusFilter(f)}
+                      onClick={() => { setStatusFilter(f); setPage(0) }}
                       className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors capitalize',
                         statusFilter === f ? 'bg-emerald-600 text-white shadow-sm' : 't2 hover:t1'
                       )}
@@ -130,7 +136,7 @@ function ConnectedView() {
                     {channels.map((ch) => (
                       <button
                         key={ch}
-                        onClick={() => setChannelFilter(ch)}
+                        onClick={() => { setChannelFilter(ch); setPage(0) }}
                         className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
                           channelFilter === ch ? 'bg-blue-600 text-white shadow-sm' : 't2 hover:t1'
                         )}
@@ -140,7 +146,18 @@ function ConnectedView() {
                 )}
               </div>
             </div>
-            <CampaignTable campaigns={transformedCampaigns} emptyMessage="No campaigns match this filter." />
+            <CampaignTable campaigns={paginatedCampaigns} emptyMessage="No campaigns match this filter." />
+            {transformedCampaigns.length > 0 && (
+              <div className="px-4 pb-3">
+                <Pagination
+                  page={clampedPage}
+                  totalItems={transformedCampaigns.length}
+                  pageSize={pageSize}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                />
+              </div>
+            )}
           </div>
         </>
       )}
@@ -188,7 +205,7 @@ function MockView() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <MetricCard label="Google Spend" value={formatCurrency(totalSpend)} change={metrics.adSpend.change * 0.8} improving icon={<DollarSign size={15} />} />
+        <MetricCard label="Google Spend" value={formatCurrency(totalSpend)} change={metrics.adSpend.change * 0.8} improving icon={<IndianRupee size={15} />} />
         <MetricCard label="ROAS" value={formatRoas(avgRoas)} change={metrics.attributedRoas.change} improving={metrics.attributedRoas.improving} icon={<TrendingUp size={15} />} highlight />
         <MetricCard label="Avg CTR" value={formatPercent(avgCtr)} change={metrics.ctr.change} improving={metrics.ctr.improving} icon={<MousePointer size={15} />} />
         <MetricCard label="Avg CPA" value={formatCurrency(avgCpa)} change={metrics.cpa.change} improving={metrics.cpa.improving} icon={<Target size={15} />} />
