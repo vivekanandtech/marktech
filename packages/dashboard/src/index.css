@@ -127,6 +127,7 @@
   .t3 { color: var(--text-3); }
   .bg-surface  { background-color: var(--surface); }
   .bg-surface-2 { background-color: var(--surface-2); }
+  .bg-surface-3 { background-color: var(--surface-3); }
   .bg-app     { background-color: var(--bg); }
   .border-theme { border-color: var(--border); }
 }

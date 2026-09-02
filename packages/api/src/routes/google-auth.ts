@@ -189,11 +189,18 @@ export async function googleDataRoutes(app: FastifyInstance) {
       const auth = await resolveGoogleToken(clientId)
       if (!auth) return reply.code(401).send({ error: 'Google Ads not connected.' })
 
-      const safe = async (label: string, fn: () => Promise<any>): Promise<any> => {
-        try { return await fn() }
+      // Swallowing every failure into an empty array made a genuinely broken
+      // customer ID or a developer-token permission issue look identical to
+      // "this account just has zero campaigns" — undiagnosable from the UI,
+      // with the real reason only ever reaching a server log. Surface the
+      // primary call's actual error message instead (previousCampaigns is
+      // supplementary — a trend-comparison miss there shouldn't block the
+      // page, so it stays silent-fallback).
+      const safe = async (label: string, fn: () => Promise<any>): Promise<{ value: any; error: string | null }> => {
+        try { return { value: await fn(), error: null } }
         catch (err: any) {
           app.log.error({ err: err.message, label }, 'Google Ads API call failed')
-          return null
+          return { value: null, error: err.message }
         }
       }
 
@@ -203,16 +210,17 @@ export async function googleDataRoutes(app: FastifyInstance) {
         safe('accountInsights', () => getGoogleAccountInsights(auth.customerId, auth.accessToken, dateRange, auth.managerId)),
       ])
 
-      const previousByCampaignId = new Map<string, any>((previousCampaigns ?? []).map((c: any) => [c.campaign?.id, c]))
+      const previousByCampaignId = new Map<string, any>((previousCampaigns.value ?? []).map((c: any) => [c.campaign?.id, c]))
 
       return {
-        data: (campaigns ?? []).map((c: any) => ({
+        data: (campaigns.value ?? []).map((c: any) => ({
           ...c,
           previousMetrics: previousByCampaignId.get(c.campaign?.id)?.metrics ?? null,
         })),
-        accountInsights: accountInsights ?? null,
+        accountInsights: accountInsights.value ?? null,
         customerId: auth.customerId,
         source: 'google_ads_api',
+        ...(campaigns.error ? { error: campaigns.error } : {}),
       }
     }
   )
