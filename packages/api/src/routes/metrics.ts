@@ -4,13 +4,13 @@ import { METRIC_DEFINITIONS, METRIC_SOURCES } from '../lib/metric-definitions'
 import { assertClientAccess } from '../lib/auth-guard'
 
 export async function metricsRoutes(app: FastifyInstance) {
-  app.get<{ Querystring: { clientId?: string; dateRange?: string; country?: string } }>(
+  app.get<{ Querystring: { clientId?: string; dateRange?: string; country?: string; refresh?: string } }>(
     '/overview',
     async (request, reply) => {
-      const { clientId = 'default', dateRange = '30D', country } = request.query
+      const { clientId = 'default', dateRange = '30D', country, refresh } = request.query
       assertClientAccess(request, clientId)
       try {
-        const data = await computeOverviewMetrics(clientId, dateRange, country)
+        const data = await computeOverviewMetrics(clientId, dateRange, country, refresh === '1')
         return data
       } catch (err: any) {
         app.log.error({ err: err.message, clientId }, 'computeOverviewMetrics failed')

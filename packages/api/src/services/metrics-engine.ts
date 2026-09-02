@@ -148,6 +148,16 @@ async function computePeriodMetrics(
     shopify ? getTotalSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => 0) : 0,
   ])
 
+  // A connected platform's insights call can come back with no thrown error
+  // yet still hand us nothing — Meta's account-level endpoint has been
+  // observed returning an empty data array (no explicit error) during
+  // transient internal processing delays. That silently produced a real
+  // metaSpend/metaRoas of 0 indistinguishable from a genuine zero-spend
+  // period. Treat "connected but got nothing back" as an error too, not
+  // just an explicit catch.
+  if (meta && !metaIns && !metaError) metaError = 'No Meta insights data returned for this window'
+  if (google && !googleIns && !googleError) googleError = 'No Google Ads insights data returned for this window'
+
   let newCustomerCount = 0
   let newCustomerDataAvailable = false
   let nCACSourceApproximate = false
@@ -201,11 +211,13 @@ async function setCached(key: string, payload: OverviewMetricsResponse): Promise
 }
 
 export async function computeOverviewMetrics(
-  clientId: string, dateRange: string, country?: string
+  clientId: string, dateRange: string, country?: string, bypassCache = false
 ): Promise<OverviewMetricsResponse> {
   const cacheKey = `overview:${clientId}:${dateRange}:${country ?? 'all'}`
-  const cached = await getCached(cacheKey)
-  if (cached) return cached
+  if (!bypassCache) {
+    const cached = await getCached(cacheKey)
+    if (cached) return cached
+  }
 
   const [metaToken, googleToken, shopifyToken] = await Promise.all([
     dbGetMetaToken(clientId),
