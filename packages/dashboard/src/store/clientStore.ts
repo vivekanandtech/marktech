@@ -70,6 +70,9 @@ export interface GoogleConnection {
   customerId: string | null     // selected Google Ads customer ID
   customerName: string | null
   customers: GoogleCustomer[]
+  // A saved connection that stopped working (revoked/expired refresh token) —
+  // shown as "sync interrupted" with NA values, never as demo data.
+  syncError?: boolean
 }
 
 const EMPTY_GOOGLE: GoogleConnection = {
@@ -77,6 +80,7 @@ const EMPTY_GOOGLE: GoogleConnection = {
   customerId: null,
   customerName: null,
   customers: [],
+  syncError: false,
 }
 
 export interface ThresholdSetting { good: number; bad: number }
@@ -131,6 +135,7 @@ interface ClientStore {
   setShopifyDisconnected: (clientId: string) => void
   setGoogleConnected: (clientId: string, data: { customerId: string | null; customerName: string | null; customers: GoogleCustomer[] }) => void
   setGoogleDisconnected: (clientId: string) => void
+  setGoogleSyncError: (clientId: string) => void
 }
 
 export const useClientStore = create<ClientStore>()(
@@ -282,7 +287,7 @@ export const useClientStore = create<ClientStore>()(
         set({
           clients: get().clients.map((c) =>
             c.id === clientId
-              ? { ...c, google: { connected: true, customerId, customerName, customers } }
+              ? { ...c, google: { connected: true, customerId, customerName, customers, syncError: false } }
               : c
           ),
         }),
@@ -291,6 +296,13 @@ export const useClientStore = create<ClientStore>()(
         set({
           clients: get().clients.map((c) =>
             c.id === clientId ? { ...c, google: { ...EMPTY_GOOGLE } } : c
+          ),
+        }),
+
+      setGoogleSyncError: (clientId) =>
+        set({
+          clients: get().clients.map((c) =>
+            c.id === clientId ? { ...c, google: { ...EMPTY_GOOGLE, customerId: c.google.customerId, customerName: c.google.customerName, syncError: true } } : c
           ),
         }),
 

@@ -72,6 +72,22 @@ export async function dbUpdateAdAccounts(clientId: string, adAccounts: any[]): P
   )
 }
 
+// Meta silently extends a long-lived token's expiry as it's used, so the
+// expires_at saved at OAuth time goes stale — and anything that trusted it
+// (it used to filter dbGetToken) treated a perfectly valid token as gone.
+// Called with Meta's own debug_token answer whenever we validate live.
+export async function dbUpdateTokenExpiry(clientId: string, expiresAt: number): Promise<void> {
+  const existing = tokenStore.get(clientId)
+  if (existing) tokenStore.set(clientId, { ...existing, expiresAt })
+
+  const db = getPool()
+  if (!db) return
+  await db.query(
+    `UPDATE meta_tokens SET expires_at = to_timestamp($2), updated_at = NOW() WHERE client_id = $1`,
+    [clientId, expiresAt / 1000]
+  )
+}
+
 // Permanently removes a client's Meta connection. Used by both the explicit
 // "Disconnect" action and client deletion — without this, a removed client
 // resurfaces on the next session-discovery pass because the DB row survives.
@@ -96,7 +112,7 @@ export async function dbGetToken(clientId: string): Promise<{
             selected_ad_account_id,
             extract(epoch from expires_at) * 1000 AS expires_ms
      FROM meta_tokens
-     WHERE client_id = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
+     WHERE client_id = $1`,
     [clientId]
   )
   if (!result.rows[0]) return null
@@ -130,7 +146,6 @@ export async function dbGetAllSessions(): Promise<Array<{
             selected_ad_account_id, access_token,
             extract(epoch from expires_at) * 1000 AS expires_ms
      FROM meta_tokens
-     WHERE expires_at IS NULL OR expires_at > NOW()
      ORDER BY meta_user_id, updated_at DESC`
   )
   return result.rows.map((row) => ({
@@ -223,10 +238,14 @@ function toTimeRange(dateRange: string): { since: string; until: string } {
   return { since: fmt(since), until: fmt(until) }
 }
 
+// results/cost_per_result are Ads Manager's own "Results" column — keyed to
+// each campaign/ad set's optimization event (purchases, reach, leads...).
+// Meta silently omits them at account level, where objectives are mixed.
 export const BASE_INSIGHT_FIELDS = [
   'spend', 'impressions', 'clicks', 'reach', 'frequency',
   'purchase_roas', 'cost_per_action_type',
   'cpm', 'ctr', 'cpp', 'actions', 'action_values',
+  'results', 'cost_per_result',
 ]
 
 // Fields needed to classify a creative as video/carousel/image and render a
@@ -339,25 +358,36 @@ export async function getAccountInsightsForWindow(
   return (data.data ?? [])[0] ?? null
 }
 
-// Fetch a single campaign's ad sets, ads, and their insights.
-// Uses the /{campaignId}/ edge so queries are scoped to that one campaign
-// — no global pagination problem regardless of account size.
+// Insights for every child (ad set or ad) under one parent, keyed by child id,
+// for an explicit window. Uses the insights edge rather than nesting
+// insights{...} inside the object listing: verified live that Meta ignores a
+// top-level time_range for nested insights and always returns last_30d, so
+// the drill-down silently ignored the date picker and its rows didn't add up
+// to the campaign total.
+async function getChildInsightsForWindow(
+  parentId: string, token: string, level: 'adset' | 'ad', window: { since: string; until: string }
+): Promise<Map<string, any>> {
+  const params = new URLSearchParams({
+    fields: LEVEL_FIELDS[level].join(','),
+    time_range: JSON.stringify(window),
+    level,
+    limit: '500',
+    access_token: token,
+  })
+  const rows = await fetchAllPages(`${GRAPH}/${parentId}/insights?${params}`)
+  const idKey = level === 'adset' ? 'adset_id' : 'ad_id'
+  return new Map(rows.map((r: any) => [r[idKey], r]))
+}
+
+// Fetch a single campaign's ad sets with their insights (current + previous
+// window). Uses the /{campaignId}/ edge so queries are scoped to that one
+// campaign — no global pagination problem regardless of account size.
 export async function getCampaignDetail(
   campaignId: string,
   token: string,
   dateRange = '30D'
 ): Promise<any[]> {
-  // Embed insights directly in the adsets/ads list requests using Meta's nested
-  // field syntax: insights{field1,field2,...}. This halves the API call count
-  // (4 → 2) and avoids the "User request limit reached" error that triggered
-  // when we fired 4 parallel calls per expansion.
-  // time_range is a top-level query param — Meta applies it to nested insight
-  // edges automatically, no need to embed JSON inside the fields string.
-  const insightFields = BASE_INSIGHT_FIELDS.join(',')
-  const timeRangeParam = encodeURIComponent(JSON.stringify(toTimeRange(dateRange)))
-  const previousTimeRangeParam = encodeURIComponent(JSON.stringify(previousWindow(dateRange)))
-
-  const adsetFields = `id,name,campaign_id,status,daily_budget,targeting,effective_status,insights{${insightFields}}`
+  const adsetFields = 'id,name,campaign_id,status,daily_budget,targeting,effective_status,optimization_goal'
 
   const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
     try { return await fn() }
@@ -383,29 +413,26 @@ export async function getCampaignDetail(
   // a cheap id-only listing (no insights, no creative) to count per ad set —
   // this lands under Meta's separate, effectively unthrottled ads_management
   // usage type.
-  const [adsets, prevAdsets, adsLite] = await Promise.all([
-    safe('adsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${timeRangeParam}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`)),
-    safe('prevAdsets', () => fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&time_range=${previousTimeRangeParam}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`)),
+  const emptyMap = async () => new Map<string, any>()
+  const [adsets, insights, prevInsights, adsLite] = await Promise.all([
+    // Not soft: an empty list here would tell the user the campaign has no ad sets.
+    fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`),
+    getChildInsightsForWindow(campaignId, token, 'adset', toTimeRange(dateRange)).catch((err) => {
+      console.error(`[getCampaignDetail] adset insights failed for campaign ${campaignId}:`, err.message)
+      return emptyMap()
+    }),
+    getChildInsightsForWindow(campaignId, token, 'adset', previousWindow(dateRange)).catch(emptyMap),
     safe('adsLite', () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=id,adset_id&limit=500&access_token=${token}`)),
   ])
   const adCountByAdset = new Map<string, number>()
   for (const ad of adsLite) {
     adCountByAdset.set(ad.adset_id, (adCountByAdset.get(ad.adset_id) ?? 0) + 1)
   }
-  console.log(`[getCampaignDetail] campaign ${campaignId}: adsets=${adsets.length} totalAds=${adsLite.length}`)
-
-  // Meta returns nested insights as { data: [...], paging: {...} }.
-  // Normalise to a flat object so the transform layer sees the same shape
-  // regardless of whether insights came from a nested edge or a separate call.
-  const flatInsights = (item: any) =>
-    Array.isArray(item.insights?.data) ? item.insights.data[0] ?? null : item.insights ?? null
-
-  const prevAdsetInsights = new Map(prevAdsets.map((as: any) => [as.id, flatInsights(as)]))
 
   return adsets.map((as: any) => ({
     ...as,
-    insights: flatInsights(as),
-    previousInsights: prevAdsetInsights.get(as.id) ?? null,
+    insights: insights.get(as.id) ?? null,
+    previousInsights: prevInsights.get(as.id) ?? null,
     ads: [],
     adCount: adCountByAdset.get(as.id) ?? 0,
   }))
@@ -422,33 +449,112 @@ export async function getAdSetAdsDetail(
   token: string,
   dateRange = '30D'
 ): Promise<any[]> {
-  const insightFields = BASE_INSIGHT_FIELDS.join(',')
-  const timeRangeParam = encodeURIComponent(JSON.stringify(toTimeRange(dateRange)))
-  const previousTimeRangeParam = encodeURIComponent(JSON.stringify(previousWindow(dateRange)))
-  const adFields = `id,name,status,adset_id,campaign_id,effective_status,creative{${AD_DRILLDOWN_CREATIVE_FIELDS}},insights{${insightFields}}`
+  const adFields = `id,name,status,adset_id,campaign_id,effective_status,creative{${AD_DRILLDOWN_CREATIVE_FIELDS}}`
+  const emptyMap = async () => new Map<string, any>()
 
-  const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
-    try { return await fn() }
-    catch (err: any) {
-      console.error(`[getAdSetAdsDetail] ${label} failed for adset ${adSetId}:`, err.message)
-      return []
-    }
-  }
-
-  const [ads, prevAds] = await Promise.all([
-    safe('ads', () => fetchAllPages(`${GRAPH}/${adSetId}/ads?fields=${adFields}&time_range=${timeRangeParam}&limit=200&access_token=${token}`)),
-    safe('prevAds', () => fetchAllPages(`${GRAPH}/${adSetId}/ads?fields=${adFields}&time_range=${previousTimeRangeParam}&limit=200&access_token=${token}`)),
+  const [ads, insights, prevInsights] = await Promise.all([
+    fetchAllPages(`${GRAPH}/${adSetId}/ads?fields=${adFields}&limit=200&access_token=${token}`),
+    getChildInsightsForWindow(adSetId, token, 'ad', toTimeRange(dateRange)).catch((err) => {
+      console.error(`[getAdSetAdsDetail] ad insights failed for adset ${adSetId}:`, err.message)
+      return emptyMap()
+    }),
+    getChildInsightsForWindow(adSetId, token, 'ad', previousWindow(dateRange)).catch(emptyMap),
   ])
-
-  const flatInsights = (item: any) =>
-    Array.isArray(item.insights?.data) ? item.insights.data[0] ?? null : item.insights ?? null
-  const prevAdInsights = new Map(prevAds.map((ad: any) => [ad.id, flatInsights(ad)]))
 
   return ads.map((ad: any) => ({
     ...ad,
-    insights: flatInsights(ad),
-    previousInsights: prevAdInsights.get(ad.id) ?? null,
+    insights: insights.get(ad.id) ?? null,
+    previousInsights: prevInsights.get(ad.id) ?? null,
   }))
+}
+
+// Every ad with spend in the window, with its campaign/ad set names and the
+// full insight field set — one paginated account-level call. Backs the Excel
+// export and the Actionables engine, neither of which can afford one call per
+// ad set.
+export async function getAdLevelInsightsForWindow(
+  adAccountId: string, token: string, window: { since: string; until: string }, extraParams: Record<string, string> = {}
+): Promise<any[]> {
+  const params = new URLSearchParams({
+    fields: LEVEL_FIELDS.ad.join(','),
+    time_range: JSON.stringify(window),
+    level: 'ad',
+    limit: '500',
+    filtering: JSON.stringify([{ field: 'spend', operator: 'GREATER_THAN', value: 0 }]),
+    access_token: token,
+    ...extraParams,
+  })
+  return fetchAllPages(`${GRAPH}/${adAccountId}/insights?${params}`)
+}
+
+// The top-spending, currently-delivering ad sets or ads in ONE page. Built for
+// accounts on Meta's development access tier, whose small ads_insights budget
+// a full paginated ad-level pull (current + previous period) exhausts — the
+// whole account then gets throttled for ~an hour. Filtering to ACTIVE also
+// keeps paused objects out: recommending "pause" for something already paused
+// is the fastest way to lose a CMO's trust.
+export async function getTopActiveInsights(
+  adAccountId: string, token: string, window: { since: string; until: string },
+  level: 'adset' | 'ad', opts: { limit?: number; ids?: string[] } = {}
+): Promise<any[]> {
+  const filtering: any[] = [{ field: 'spend', operator: 'GREATER_THAN', value: 0 }]
+  if (opts.ids) filtering.push({ field: `${level}.id`, operator: 'IN', value: opts.ids })
+  else filtering.push({ field: `${level}.effective_status`, operator: 'IN', value: ['ACTIVE'] })
+  const params = new URLSearchParams({
+    fields: LEVEL_FIELDS[level].join(','),
+    time_range: JSON.stringify(window),
+    level,
+    sort: JSON.stringify(['spend_descending']),
+    limit: String(opts.limit ?? 150),
+    filtering: JSON.stringify(filtering),
+    access_token: token,
+  })
+  const res = await fetch(`${GRAPH}/${adAccountId}/insights?${params}`, { signal: AbortSignal.timeout(45_000) })
+  const data = await res.json() as any
+  if (data.error) throw new Error(data.error.message)
+  return data.data ?? []
+}
+
+// Account spend/revenue split by delivery country (ISO-2 code in `country`).
+export async function getAccountInsightsByCountry(
+  adAccountId: string, token: string, window: { since: string; until: string }
+): Promise<any[]> {
+  const params = new URLSearchParams({
+    fields: BASE_INSIGHT_FIELDS.join(','),
+    time_range: JSON.stringify(window),
+    level: 'account',
+    breakdowns: 'country',
+    limit: '500',
+    access_token: token,
+  })
+  return fetchAllPages(`${GRAPH}/${adAccountId}/insights?${params}`)
+}
+
+// Top-spending ads in one country, with that country's slice of their metrics.
+export async function getAdInsightsForCountry(
+  adAccountId: string, token: string, window: { since: string; until: string }, countryCode: string
+): Promise<any[]> {
+  const params = new URLSearchParams({
+    fields: LEVEL_FIELDS.ad.join(','),
+    time_range: JSON.stringify(window),
+    level: 'ad',
+    breakdowns: 'country',
+    sort: JSON.stringify(['spend_descending']),
+    limit: '50',
+    filtering: JSON.stringify([
+      { field: 'spend', operator: 'GREATER_THAN', value: 0 },
+      { field: 'country', operator: 'IN', value: [countryCode] },
+    ]),
+    access_token: token,
+  })
+  const res = await fetch(`${GRAPH}/${adAccountId}/insights?${params}`, { signal: AbortSignal.timeout(45_000) })
+  const data = await res.json() as any
+  if (data.error) throw new Error(data.error.message)
+  return data.data ?? []
+}
+
+export async function getAdLevelInsights(adAccountId: string, token: string, dateRange = '30D'): Promise<any[]> {
+  return getAdLevelInsightsForWindow(adAccountId, token, toTimeRange(dateRange))
 }
 
 // Pick the highest-quality image URL available in a creative object.
@@ -596,13 +702,15 @@ export async function getDailyInsights(adAccountId: string, token: string, dateR
 
 // ─── Verify a token is still valid ───────────────────────────────────────────
 
-export async function verifyToken(token: string): Promise<boolean> {
+// expiresAt is Meta's current answer (Unix ms), null for a non-expiring token.
+export async function verifyToken(token: string): Promise<{ valid: boolean; expiresAt: number | null }> {
   try {
     const appToken = `${APP_ID}|${APP_SECRET}`
     const res = await fetch(`${GRAPH}/debug_token?input_token=${token}&access_token=${appToken}`)
     const data = await res.json() as any
-    return data.data?.is_valid === true
+    const expiresSec = Number(data.data?.expires_at) || 0
+    return { valid: data.data?.is_valid === true, expiresAt: expiresSec > 0 ? expiresSec * 1000 : null }
   } catch {
-    return false
+    return { valid: false, expiresAt: null }
   }
 }

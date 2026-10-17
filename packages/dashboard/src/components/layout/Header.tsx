@@ -6,7 +6,7 @@ import { useFilterStore } from '@/store/filterStore'
 import { useAuthStore } from '@/store/authStore'
 import { useThemeStore, type ThemeMode } from '@/store/themeStore'
 import { useClientStore } from '@/store/clientStore'
-import { getAlerts } from '@/lib/mock-data'
+import { useActionablesStore, openAlertCount } from '@/store/actionablesStore'
 import { CountryDropdown } from './CountryDropdown'
 
 const DATE_RANGES = ['1D', '3D', '7D', '14D', '30D', '3M', '6M', '1Y'] as const
@@ -73,7 +73,6 @@ export function Header() {
   const navigate = useNavigate()
   const [userOpen, setUserOpen] = useState(false)
   const userRef = useRef<HTMLDivElement>(null)
-  const alerts = getAlerts(clientId)
 
   useEffect(() => {
     if (!userOpen) return
@@ -84,7 +83,7 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handler)
   }, [userOpen])
   const { clients } = useClientStore()
-  const unreadCount = alerts.filter((a) => !a.isRead).length
+  const unreadCount = useActionablesStore((s) => openAlertCount(s.payload))
   const [clientOpen, setClientOpen] = useState(false)
   const clientRef = useRef<HTMLDivElement>(null)
   const currentClient = clients.find((c) => c.id === clientId) ?? clients[0]
@@ -207,7 +206,11 @@ export function Header() {
       <div className="ml-auto flex items-center gap-2">
         <ThemeToggle />
 
-        <button className="relative p-2 t2 hover:t1 transition-colors rounded-lg hover:bg-surface-2">
+        <button
+          onClick={() => navigate('/alerts')}
+          title={unreadCount > 0 ? `${unreadCount} open alerts` : 'Alerts'}
+          className="relative p-2 t2 hover:t1 transition-colors rounded-lg hover:bg-surface-2"
+        >
           <Bell size={17} />
           {unreadCount > 0 && <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />}
         </button>

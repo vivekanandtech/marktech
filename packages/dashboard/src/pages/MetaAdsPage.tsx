@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, MousePointer, IndianRupee, TrendingUp, Layers, Loader2, AlertTriangle, Link2, ExternalLink, RefreshCw } from 'lucide-react'
+import { Eye, MousePointer, IndianRupee, TrendingUp, Layers, Loader2, AlertTriangle, Link2, ExternalLink, RefreshCw, Download } from 'lucide-react'
 import clsx from 'clsx'
 import { Link } from 'react-router-dom'
 import { MetricCard } from '@/components/ui/MetricCard'
@@ -14,6 +14,13 @@ import { getSummaryMetrics, getCampaigns } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { transformInsightMetrics, transformMetaCampaign } from '@/lib/meta-transform'
 import { accountManagerUrl } from '@/lib/meta-links'
+import { apiFetch } from '@/lib/api'
+import { exportMetaAdsExcel } from '@/lib/exports'
+
+function pctChange(current: number, previous: number): number {
+  if (previous === 0) return current === 0 ? 0 : 100
+  return ((current - previous) / previous) * 100
+}
 
 type CampaignFilter = 'all' | 'active' | 'paused' | 'archived'
 type ActionTagFilter = 'all' | 'scale' | 'watch' | 'optimise'
@@ -50,11 +57,29 @@ function ConnectedView() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  const { data: rawCampaigns, accountInsights, loading, error } = useMetaCampaigns()
+  const { data: rawCampaigns, accountInsights, previousAccountInsights, loading, error } = useMetaCampaigns()
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   function handleRefresh() {
     if (!clientId || !adAccountId) return
     invalidate('campaigns', makeCacheKey(clientId, adAccountId, dateRange))
+  }
+
+  async function handleExport() {
+    if (!adAccountId) return
+    setExporting(true)
+    setExportError(null)
+    try {
+      const r = await apiFetch(`/api/meta/ads-export?clientId=${clientId}&adAccountId=${adAccountId}&dateRange=${dateRange}`)
+      const json = await r.json()
+      if (json.error) throw new Error(json.error)
+      await exportMetaAdsExcel(json.data ?? [], { accountName: activeAccount?.name ?? currentClient?.name ?? 'Meta', dateRange })
+    } catch (e: any) {
+      setExportError(e.message ?? 'Export failed')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const allCampaigns = rawCampaigns
@@ -83,11 +108,18 @@ function ConnectedView() {
   // shows, independent of pagination. Fall back to aggregating campaign rows
   // only if the account-level query returned nothing.
   const acct = accountInsights ? transformInsightMetrics(accountInsights) : null
+  const prev = previousAccountInsights ? transformInsightMetrics(previousAccountInsights) : null
   const totalSpend = acct?.spend ?? allCampaigns.reduce((s, c) => s + c.spend, 0)
   const totalReach = acct?.reach ?? allCampaigns.reduce((s, c) => s + c.reach, 0)
   const avgRoas    = acct?.roas  ?? 0
   const avgCtr     = acct?.ctr   ?? 0
   const avgCpa     = acct?.cpa   ?? 0
+  const delta = (cur: number, p: number | undefined) => (prev && p !== undefined ? pctChange(cur, p) : null)
+  const spendDelta = delta(totalSpend, prev?.spend)
+  const roasDelta  = delta(avgRoas, prev?.roas)
+  const reachDelta = delta(totalReach, prev?.reach)
+  const ctrDelta   = delta(avgCtr, prev?.ctr)
+  const cpaDelta   = delta(avgCpa, prev?.cpa)
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -119,6 +151,15 @@ function ConnectedView() {
             <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
             Refresh
           </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting || !adAccountId}
+            title="Download every ad with spend in this window, split into Scale / Optimise / Watch tabs"
+            className="flex items-center gap-1.5 text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-700 dark:text-emerald-400 px-2.5 py-1.5 rounded-lg transition-colors"
+          >
+            {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            {exporting ? 'Exporting…' : 'Export Excel'}
+          </button>
           {adAccountId && (
             <a
               href={accountManagerUrl(adAccountId)}
@@ -131,6 +172,12 @@ function ConnectedView() {
           )}
         </div>
       </div>
+
+      {exportError && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500">
+          <AlertTriangle size={13} /> Export failed: {exportError}
+        </div>
+      )}
 
       {/* Metrics — keep stale data visible while refetching (dateRange change) */}
       {loading && rawCampaigns.length === 0 ? (
@@ -145,11 +192,11 @@ function ConnectedView() {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <MetricCard label="Meta Spend" value={formatCurrency(totalSpend)} change={0} improving icon={<IndianRupee size={15} />} />
-            <MetricCard label="Avg ROAS" value={formatRoas(avgRoas)} change={0} improving icon={<TrendingUp size={15} />} highlight />
-            <MetricCard label="Reach" value={formatNumber(totalReach)} change={0} improving icon={<Eye size={15} />} />
-            <MetricCard label="Avg CTR" value={formatPercent(avgCtr)} change={0} improving icon={<MousePointer size={15} />} />
-            <MetricCard label="Avg CPA" value={formatCurrency(avgCpa)} change={0} improving icon={<Layers size={15} />} />
+            <MetricCard label="Meta Spend" value={formatCurrency(totalSpend)} change={spendDelta} improving icon={<IndianRupee size={15} />} />
+            <MetricCard label="Avg ROAS" value={formatRoas(avgRoas)} change={roasDelta} improving={(roasDelta ?? 0) >= 0} icon={<TrendingUp size={15} />} highlight />
+            <MetricCard label="Reach" value={formatNumber(totalReach)} change={reachDelta} improving={(reachDelta ?? 0) >= 0} icon={<Eye size={15} />} />
+            <MetricCard label="Avg CTR" value={formatPercent(avgCtr)} change={ctrDelta} improving={(ctrDelta ?? 0) >= 0} icon={<MousePointer size={15} />} />
+            <MetricCard label="Avg CPA" value={formatCurrency(avgCpa)} change={cpaDelta} improving={(cpaDelta ?? 0) <= 0} icon={<Layers size={15} />} />
           </div>
 
           <div className="card p-4">

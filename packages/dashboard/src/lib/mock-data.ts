@@ -271,16 +271,3 @@ export function getCreatives(clientId: string) {
   }))
 }
 
-// ─── Alerts ──────────────────────────────────────────────────────────────────
-
-export function getAlerts(clientId: string) {
-  const now = new Date()
-  const ago = (h: number) => new Date(now.getTime() - h * 3600000).toISOString()
-  return [
-    { id: 'al1', clientId, platform: 'meta', type: 'creative_fatigue', severity: 'warning', campaignId: 'cp2', campaignName: 'Lookalike 1–3% — Purchase (India)', adSetId: 'as4', title: 'Creative Fatigue Detected', message: '"Category Showcase — Carousel" has reached frequency 3.8 in 7 days. CTR fell 24% WoW. Refresh creative to prevent ROAS erosion.', metric: 'frequency', metricValue: 3.8, threshold: 3.5, createdAt: ago(2), isRead: false, actionRequired: true },
-    { id: 'al2', clientId, platform: 'meta', type: 'high_performer', severity: 'info', campaignId: 'cp3', campaignName: 'Retargeting — 30D Visitors (India)', title: 'High Performer — Scale Opportunity', message: 'Retargeting campaign delivering 7.2x ROAS, 51% above account target. Audience may saturate in 5–7 days. Consider expanding window from 30 to 45 days.', metric: 'roas', metricValue: 7.2, threshold: 4.8, createdAt: ago(4), isRead: false, actionRequired: false },
-    { id: 'al3', clientId, platform: 'meta', type: 'roas_drop', severity: 'critical', campaignId: 'cp4', campaignName: 'LAL 3–6% — UAE & Gulf', title: 'ROAS Below Target', message: 'Gulf campaign ROAS dropped to 4.0x, 16% below the 4.8x target. CPA increased ₹92 over 3 days. Spending ₹6,100/day. Recommend pausing until creative refresh.', metric: 'roas', metricValue: 4.0, threshold: 4.8, createdAt: ago(1), isRead: false, actionRequired: true },
-    { id: 'al4', clientId, platform: 'google', type: 'budget_cap', severity: 'warning', campaignId: 'cp6', campaignName: 'Shopping — PMax India', title: 'Budget Capping Mid-Day', message: 'Shopping campaign exhausted ₹30,000 daily budget by 2:30 PM. Impression share lost to budget: 34%. ROAS is 4.3x — above target. Recommend increasing budget by ₹8,000/day.', createdAt: ago(6), isRead: true, actionRequired: true },
-    { id: 'al5', clientId, platform: 'meta', type: 'learning_phase', severity: 'info', campaignId: 'cp1', campaignName: 'Advantage+ Shopping — India', title: 'Learning Phase Complete', message: 'Advantage+ campaign exited learning phase after 7 days with 52 optimization events. Performance is now stable. Avoid major changes for 3 days.', createdAt: ago(12), isRead: true, actionRequired: false },
-  ]
-}

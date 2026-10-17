@@ -7,7 +7,9 @@ import { MetricStatus, STATUS_DOT_CLASS } from '@/lib/metric-thresholds'
 interface MetricCardProps {
   label: string
   value: string
-  change: number
+  // null = nothing meaningful to compare against (e.g. the channel isn't
+  // synced) — hides the trend line rather than showing a misleading 0%.
+  change: number | null
   improving: boolean
   icon?: React.ReactNode
   subtitle?: string
@@ -42,7 +44,8 @@ export function MetricCard({
           {metricId && <MetricInfoTooltip metricId={metricId} size="sm" />}
         </div>
         <p className="text-base font-bold t1">{value}</p>
-        <TrendBadge change={change} improving={improving} />
+        {subtitle && <p className="text-[10px] t3 -mt-0.5 leading-tight">{subtitle}</p>}
+        {change !== null && <TrendBadge change={change} improving={improving} />}
       </div>
     )
   }
@@ -78,10 +81,12 @@ export function MetricCard({
         {subtitle && <p className="text-xs t3 mt-0.5">{subtitle}</p>}
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <TrendBadge change={change} improving={improving} />
-        <span className="text-[11px] t3">vs {compareLabel ?? `prev ${dateRange}`}</span>
-      </div>
+      {change !== null && (
+        <div className="flex items-center gap-1.5">
+          <TrendBadge change={change} improving={improving} />
+          <span className="text-[11px] t3">vs {compareLabel ?? `prev ${dateRange}`}</span>
+        </div>
+      )}
     </div>
   )
 }

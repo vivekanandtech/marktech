@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { apiFetch } from '@/lib/api'
-import { useMetricsDataStore, makeMetricsCacheKey, OverviewMetricsResponse } from '@/store/metricsDataStore'
+import { useMetricsDataStore, makeMetricsCacheKey, OverviewMetricsResponse, hasTransientPlatformError } from '@/store/metricsDataStore'
 
 export type { OverviewMetricsResponse, PeriodMetrics } from '@/store/metricsDataStore'
 
@@ -49,7 +49,7 @@ export function useOverviewMetrics() {
           loading: false,
           error: null,
         })
-        if (json.platformErrors?.meta || json.platformErrors?.google) {
+        if (hasTransientPlatformError(json)) {
           retryTimer = setTimeout(() => setRetryTick((t) => t + 1), PLATFORM_ERROR_RETRY_MS)
         }
       })

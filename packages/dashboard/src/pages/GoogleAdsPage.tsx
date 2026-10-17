@@ -7,6 +7,7 @@ import { Pagination } from '@/components/ui/Pagination'
 import { CampaignTable } from '@/components/campaigns/CampaignTable'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
+import { useAuthStore } from '@/store/authStore'
 import { useGoogleCampaigns, GoogleAccountInsightsRaw } from '@/hooks/useGoogleData'
 import { getSummaryMetrics, getCampaigns } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
@@ -165,10 +166,123 @@ function ConnectedView() {
   )
 }
 
-// ─── Not connected — mock data view ──────────────────────────────────────────
+// Where to (re)connect Google Ads: admins manage connections per client in
+// the admin panel; client logins use Settings.
+function useConnectPath() {
+  const { clientId } = useFilterStore()
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
+  return isAdmin ? `/admin/clients/${clientId}` : '/settings'
+}
+
+function PageHeader({ subtitle, action }: { subtitle: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center gap-3">
+        <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center">
+          <span className="text-emerald-600 dark:text-emerald-400 text-sm font-bold">G</span>
+        </div>
+        <div>
+          <h1 className="text-xl font-bold t1">Google Ads</h1>
+          <p className="text-sm t3">{subtitle}</p>
+        </div>
+      </div>
+      {action}
+    </div>
+  )
+}
+
+// ─── Saved connection stopped working — NA, never demo data ──────────────────
+
+function SyncErrorView() {
+  const { clientId } = useFilterStore()
+  const { clients } = useClientStore()
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
+  const connectPath = useConnectPath()
+  const google = clients.find((c) => c.id === clientId)?.google
+  const na = (label: string, icon: React.ReactNode) => (
+    <MetricCard label={label} value="NA" subtitle="Not synced" change={null} improving icon={icon} />
+  )
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <PageHeader
+        subtitle={google?.customerName ?? google?.customerId ?? 'Search · Shopping · Performance Max'}
+        action={isAdmin ? (
+          <Link to={connectPath} className="flex items-center gap-2 text-xs font-semibold bg-[#4285F4] hover:bg-[#3367D6] text-white px-3 py-1.5 rounded-lg transition-colors">
+            <Link2 size={12} /> Reconnect Google Ads
+          </Link>
+        ) : undefined}
+      />
+
+      <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
+        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+        <span>
+          <span className="font-semibold">Google Ads sync interrupted.</span> The saved connection stopped working (Google revoked or expired the access), so no Google data is coming in.
+          Figures show NA rather than stale or estimated numbers. {isAdmin ? 'Reconnect Google Ads to resume.' : 'Ask your account manager to reconnect it.'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {na('Google Spend', <IndianRupee size={15} />)}
+        {na('ROAS', <TrendingUp size={15} />)}
+        {na('Avg CTR', <MousePointer size={15} />)}
+        {na('Avg CPA', <Target size={15} />)}
+        {na('Avg CPC', <Layers size={15} />)}
+      </div>
+
+      <div className="card p-4">
+        <div className="flex flex-col items-center justify-center py-14 text-center gap-2">
+          <p className="text-sm font-medium t2">Campaigns will reappear here as soon as Google Ads syncs again</p>
+          <p className="text-xs t3 max-w-md">Meta and Shopify data are unaffected. On Overview, the Google channel shows NA and Blended figures reflect Meta only until then.</p>
+          {isAdmin && <Link to={connectPath} className="text-xs font-semibold text-blue-500 hover:underline mt-1">Reconnect Google Ads →</Link>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Live client without Google — NA, no demo numbers ────────────────────────
+
+function NotConnectedView() {
+  const connectPath = useConnectPath()
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
+  const na = (label: string, icon: React.ReactNode) => (
+    <MetricCard label={label} value="NA" subtitle="Not connected" change={null} improving icon={icon} />
+  )
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <PageHeader
+        subtitle="Search · Shopping · Performance Max"
+        action={isAdmin ? (
+          <Link to={connectPath} className="flex items-center gap-2 text-xs font-semibold bg-[#4285F4] hover:bg-[#3367D6] text-white px-3 py-1.5 rounded-lg transition-colors">
+            <Link2 size={12} /> Connect Google Ads
+          </Link>
+        ) : undefined}
+      />
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {na('Google Spend', <IndianRupee size={15} />)}
+        {na('ROAS', <TrendingUp size={15} />)}
+        {na('Avg CTR', <MousePointer size={15} />)}
+        {na('Avg CPA', <Target size={15} />)}
+        {na('Avg CPC', <Layers size={15} />)}
+      </div>
+      <div className="card p-4">
+        <div className="flex flex-col items-center justify-center py-14 text-center gap-2">
+          <p className="text-sm font-medium t2">Google Ads isn't connected for this client</p>
+          <p className="text-xs t3 max-w-md">Once connected, live campaigns appear here and Google flows into Overview's Google and Blended views.</p>
+          {isAdmin ? <Link to={connectPath} className="text-xs font-semibold text-blue-500 hover:underline mt-1">Connect Google Ads →</Link>
+            : <p className="text-xs t3">Ask your account manager to connect it.</p>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Pure demo client — demo data view ───────────────────────────────────────
 
 function MockView() {
   const { clientId, country } = useFilterStore()
+  const connectPath = useConnectPath()
   const mockMarket = country === 'all' ? 'all' : country === 'India' ? 'india' : 'international'
   const metrics = getSummaryMetrics(clientId, mockMarket)
   const campaigns = getCampaigns(clientId, 'google', mockMarket)
@@ -192,7 +306,7 @@ function MockView() {
           </div>
         </div>
         <Link
-          to="/settings"
+          to={connectPath}
           className="flex items-center gap-2 text-xs font-semibold bg-[#4285F4] hover:bg-[#3367D6] text-white px-3 py-1.5 rounded-lg transition-colors"
         >
           <Link2 size={12} /> Connect Google Ads
@@ -201,7 +315,7 @@ function MockView() {
 
       <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
         <AlertTriangle size={13} className="shrink-0" />
-        Showing demo data. <Link to="/settings" className="underline font-medium">Connect your Google Ads account</Link> to see live campaigns.
+        Showing demo data. <Link to={connectPath} className="underline font-medium">Connect your Google Ads account</Link> to see live campaigns.
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -218,8 +332,8 @@ function MockView() {
             <span className="text-emerald-500 font-bold text-lg">G</span>
           </div>
           <p className="text-sm font-medium t2">Connect Google Ads to see live data</p>
-          <p className="text-xs t3 max-w-xs">Go to Settings to connect your Google Ads account. You'll need a Google Ads developer token and OAuth credentials.</p>
-          <Link to="/settings" className="text-xs font-semibold text-blue-500 hover:underline">Go to Settings →</Link>
+          <p className="text-xs t3 max-w-xs">Connect this client's Google Ads account to replace the demo numbers above with live campaigns.</p>
+          <Link to={connectPath} className="text-xs font-semibold text-blue-500 hover:underline">Connect Google Ads →</Link>
         </div>
       </div>
     </div>
@@ -231,6 +345,12 @@ function MockView() {
 export function GoogleAdsPage() {
   const { clientId } = useFilterStore()
   const { clients } = useClientStore()
-  const connected = clients.find((c) => c.id === clientId)?.google?.connected ?? false
-  return connected ? <ConnectedView /> : <MockView />
+  const client = clients.find((c) => c.id === clientId)
+  const google = client?.google
+  if (google?.connected) return <ConnectedView />
+  if (google?.syncError) return <SyncErrorView />
+  // Demo numbers only for a pure demo client — next to real Meta/Shopify data
+  // they'd read as this client's actual Google performance.
+  const hasLiveData = !!(client?.meta.connected || client?.shopify.connected)
+  return hasLiveData ? <NotConnectedView /> : <MockView />
 }

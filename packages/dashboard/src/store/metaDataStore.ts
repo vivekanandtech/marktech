@@ -19,6 +19,7 @@ interface DataSlice<T> {
 
 interface CampaignSlice extends DataSlice<any[]> {
   accountInsights: any
+  previousAccountInsights?: any
 }
 
 interface MetaDataStore {

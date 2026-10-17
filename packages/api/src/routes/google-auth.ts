@@ -107,6 +107,16 @@ export async function googleAuthRoutes(app: FastifyInstance) {
     try { row = await dbGetGoogleToken(clientId) } catch { /* DB unavailable */ }
     const data = row ?? (mem ? { customerId: mem.customerId, customerName: mem.customerName, customers: mem.customers } : null)
     if (!data) return { connected: false }
+
+    // A saved row only proves a refresh token was issued at some point —
+    // Google revokes it (unpublished/"Testing" OAuth consent screens expire
+    // grants after 7 days, or the user revokes access) without telling us,
+    // so "row present" was being reported as "connected" even though every
+    // real data call would 401 with invalid_grant. Confirm it still refreshes
+    // before saying so, same as the Meta status check already does.
+    const accessToken = await getValidAccessToken(clientId)
+    if (!accessToken) return { connected: false, reason: 'token_expired' }
+
     return {
       connected: true,
       customerId: data.customerId,

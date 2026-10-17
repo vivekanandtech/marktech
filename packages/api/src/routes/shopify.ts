@@ -86,6 +86,18 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       if (row) { stored = row; shopifyTokenStore.set(clientId, row) }
     }
     if (!stored) return { connected: false }
+
+    // A row existing only proves a token was saved at some point — Shopify
+    // revokes/rotates access tokens (app uninstalled, scopes changed, custom
+    // app token regenerated) without ever telling us, so "row present" was
+    // being reported as "connected" even when every real data call would
+    // 401. Confirm the token still works with the same cheap call the Meta
+    // status check makes (debug_token) before saying so.
+    try {
+      await getShopInfo(stored.shopDomain, stored.accessToken)
+    } catch {
+      return { connected: false, reason: 'token_expired' }
+    }
     return { connected: true, shopDomain: stored.shopDomain, shopName: stored.shopName }
   })
 

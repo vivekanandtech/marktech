@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
-  IndianRupee, TrendingUp, Eye, MousePointer, Layers,
-  Globe, BarChart2, ChevronRight, ArrowRight, Loader2, AlertTriangle,
+  IndianRupee, TrendingUp, Eye, MousePointer, Layers, Globe, BarChart2,
+  ChevronRight, ArrowRight, Loader2, AlertTriangle, PlugZap,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import clsx from 'clsx'
@@ -14,561 +14,518 @@ import { ConversionRateChart } from '@/components/charts/ConversionRateChart'
 import { ProductFunnelChart, ProductFunnelStage } from '@/components/charts/ProductFunnelChart'
 import { FormatBreakdownChart } from '@/components/charts/FormatBreakdownChart'
 import { CreativeCard } from '@/components/creatives/CreativeCard'
-import { AlertCard } from '@/components/alerts/AlertCard'
 import { CampaignTable } from '@/components/campaigns/CampaignTable'
-import { InsightsPanel } from '@/components/insights/InsightsPanel'
-import { CrossChannelInsightsTeaser } from '@/components/insights/CrossChannelInsightsTeaser'
 import { ReconciliationSection } from '@/components/reconciliation/ReconciliationSection'
+import { ActionablesTeaser } from '@/components/actionables/ActionablesTeaser'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
 import { useMetaCampaigns, useMetaDailyInsights, useMetaCreatives } from '@/hooks/useMetaData'
-import { useGoogleCampaigns } from '@/hooks/useGoogleData'
+import { useGoogleCampaigns, useGoogleDailyInsights } from '@/hooks/useGoogleData'
 import { useOverviewMetrics } from '@/hooks/useOverviewMetrics'
 import { useProductPerformance } from '@/hooks/useProductPerformance'
 import { getMetricStatus } from '@/lib/metric-thresholds'
-import { getSummaryMetrics, getChartData, getFormatBreakdown, getCreatives, getAlerts } from '@/lib/mock-data'
+import { getSummaryMetrics, getChartData, getFormatBreakdown, getCreatives } from '@/lib/mock-data'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
 import { transformInsightMetrics, transformMetaCampaign, safeFloat, safeInt, classifyCreativeFormat } from '@/lib/meta-transform'
-import { transformGoogleCampaign } from '@/lib/google-transform'
-import { maxActionCount, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
-import { InsightsPayload } from '@/store/insightsStore'
+import { transformGoogleCampaign, microsToCurrency } from '@/lib/google-transform'
+import { maxActionCount, maxActionValue, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
+import type { PeriodMetrics, PlatformStatus } from '@/store/metricsDataStore'
 
-// ─── Transform one daily-insights row to chart format ─────────────────────────
-function toDailyChartRow(row: any) {
-  const spend     = safeFloat(row.spend)
-  const roasArr   = Array.isArray(row.purchase_roas) ? row.purchase_roas : []
-  const roas      = roasArr.length ? safeFloat(roasArr[0]?.value) : 0
-  const purchaseValue = spend * roas
+// ─── Daily chart rows (one shape for Meta, Google and Blended) ───────────────
+interface DayRow { iso: string; spend: number; value: number; purchases: number; clicks: number }
 
-  const purchases = maxActionCount(row, PURCHASE_ACTION_TYPES)
-  const clicksN  = safeInt(row.clicks)
-  const cvr      = clicksN > 0 && purchases > 0 ? (purchases / clicksN) * 100 : 0
-
-  const d    = new Date(row.date_start)
-  const date = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+function metaDay(row: any): DayRow {
   return {
-    date,
-    metaSpend:      Math.round(spend),
-    purchaseValue:  Math.round(purchaseValue),
-    roas:           parseFloat(roas.toFixed(2)),
-    conversionRate: parseFloat(cvr.toFixed(2)),
+    iso: String(row.date_start),
+    spend: safeFloat(row.spend),
+    value: maxActionValue(row, PURCHASE_ACTION_TYPES),
+    purchases: maxActionCount(row, PURCHASE_ACTION_TYPES),
+    clicks: safeInt(row.clicks),
   }
 }
 
-// ─── Transform raw top-ad into CreativeCard shape ─────────────────────────────
+function googleDay(row: any): DayRow {
+  const m = row.metrics ?? {}
+  return {
+    iso: String(row.segments?.date ?? ''),
+    spend: microsToCurrency(m.costMicros),
+    value: Number(m.conversionsValue) || 0,
+    purchases: Number(m.conversions) || 0,
+    clicks: Number(m.clicks) || 0,
+  }
+}
+
+function toChartRows(days: DayRow[]) {
+  return [...days].sort((a, b) => a.iso.localeCompare(b.iso)).map((d) => ({
+    date: new Date(d.iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+    metaSpend: Math.round(d.spend),
+    purchaseValue: Math.round(d.value),
+    roas: d.spend > 0 ? parseFloat((d.value / d.spend).toFixed(2)) : 0,
+    conversionRate: d.clicks > 0 ? parseFloat(((d.purchases / d.clicks) * 100).toFixed(2)) : 0,
+  }))
+}
+
+function mergeDays(a: DayRow[], b: DayRow[]): DayRow[] {
+  const byDate = new Map<string, DayRow>()
+  for (const d of [...a, ...b]) {
+    const cur = byDate.get(d.iso)
+    byDate.set(d.iso, cur
+      ? { iso: d.iso, spend: cur.spend + d.spend, value: cur.value + d.value, purchases: cur.purchases + d.purchases, clicks: cur.clicks + d.clicks }
+      : { ...d })
+  }
+  return [...byDate.values()]
+}
+
+// ─── Top creative card shape ──────────────────────────────────────────────────
 function toCreativeShape(ad: any, idx: number) {
-  const ins     = ad.insights?.data?.[0] ?? null
+  const ins = ad.insights?.data?.[0] ?? null
   const metrics = transformInsightMetrics(ins)
   const creative = ad.creative ?? {}
-  const format  = classifyCreativeFormat(creative)
   return {
-    id:             ad.id ?? String(idx),
-    name:           ad.name ?? 'Unnamed ad',
-    format,
-    thumbnailUrl:   creative.thumbnail_url ?? creative.image_url ?? '',
-    spend:          metrics.spend,
-    roas:           metrics.roas,
-    ctr:            metrics.ctr,
-    cpa:            metrics.cpa,
-    frequency:      metrics.frequency,
-    trend:          0,
+    id: ad.id ?? String(idx),
+    name: ad.name ?? 'Unnamed ad',
+    format: classifyCreativeFormat(creative),
+    thumbnailUrl: creative.thumbnail_url ?? creative.image_url ?? '',
+    spend: metrics.spend, roas: metrics.roas, ctr: metrics.ctr, cpa: metrics.cpa, frequency: metrics.frequency,
+    trend: 0,
     isTopPerformer: metrics.roas >= 3.5,
-    fatigueRisk:    metrics.frequency >= 3,
+    fatigueRisk: metrics.frequency >= 3,
   }
+}
+
+// Real spend/ROAS split by creative format, from the top-spending ads.
+function formatBreakdown(rawAds: any[]) {
+  const acc = new Map<string, { spend: number; value: number; impressions: number }>()
+  for (const ad of rawAds) {
+    const m = transformInsightMetrics(ad.insights?.data?.[0] ?? null)
+    const label = { video: 'Video', carousel: 'Carousel', image: 'Image' }[classifyCreativeFormat(ad.creative)] ?? 'Image'
+    const cur = acc.get(label) ?? { spend: 0, value: 0, impressions: 0 }
+    acc.set(label, { spend: cur.spend + m.spend, value: cur.value + m.roas * m.spend, impressions: cur.impressions + m.impressions })
+  }
+  return [...acc.entries()]
+    .map(([format, v]) => ({ format, spend: Math.round(v.spend), roas: v.spend > 0 ? v.value / v.spend : 0, impressions: v.impressions }))
+    .sort((a, b) => b.spend - a.spend)
 }
 
 type ActionTagFilter = 'all' | 'scale' | 'watch' | 'optimise'
 const ACTION_TAG_FILTERS: { value: ActionTagFilter; label: string; activeClass: string }[] = [
-  { value: 'all',      label: 'All',      activeClass: 'bg-slate-600 text-white' },
+  { value: 'all',      label: 'All',        activeClass: 'bg-slate-600 text-white' },
   { value: 'scale',    label: '↑ Scale',    activeClass: 'bg-emerald-500 text-white' },
   { value: 'watch',    label: '◎ Watch',    activeClass: 'bg-amber-500 text-white' },
   { value: 'optimise', label: '⚙ Optimise', activeClass: 'bg-blue-500 text-white' },
 ]
 const TAG_ORDER: Record<string, number> = { scale: 0, watch: 1, optimise: 2 }
 
-type PlatformView = 'meta' | 'google' | 'blended'
-const PLATFORM_VIEWS: { value: PlatformView; label: string }[] = [
+type Channel = 'meta' | 'google' | 'blended'
+const CHANNELS: { value: Channel; label: string }[] = [
   { value: 'meta', label: 'Meta' },
   { value: 'google', label: 'Google' },
   { value: 'blended', label: 'Blended' },
 ]
+const CHANNEL_NAME: Record<Channel, string> = { meta: 'Meta', google: 'Google', blended: 'Meta + Google' }
+
+// Which PeriodMetrics field backs each card, per channel.
+const FIELDS: Record<Channel, { roas: keyof PeriodMetrics; spend: keyof PeriodMetrics; sessions: keyof PeriodMetrics; cpr: keyof PeriodMetrics; ctr: keyof PeriodMetrics; cpm: keyof PeriodMetrics }> = {
+  meta:    { roas: 'metaRoas', spend: 'metaSpend', sessions: 'metaSessions', cpr: 'attributedCPR', ctr: 'metaCtr', cpm: 'metaCpm' },
+  google:  { roas: 'googleRoas', spend: 'googleSpend', sessions: 'googleSessions', cpr: 'googleAttributedCPR', ctr: 'googleCtr', cpm: 'googleCpm' },
+  blended: { roas: 'blendedPlatformRoas', spend: 'blendedSpend', sessions: 'blendedSessions', cpr: 'blendedAttributedCPR', ctr: 'blendedCtr', cpm: 'blendedCpm' },
+}
+const ROAS_METRIC_ID: Record<Channel, string> = { meta: 'metaRoas', google: 'googleRoas', blended: 'blendedPlatformRoas' }
+const ROAS_SUBTITLE: Record<Channel, string> = {
+  meta: 'Facebook & Instagram · as reported by Meta',
+  google: 'Google Ads · as reported by Google',
+  blended: 'Meta + Google · as reported by the platforms',
+}
+
+function ChartCard({ title, subtitle, badge, right, children }: { title: string; subtitle: string; badge?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between mb-0.5 gap-2">
+        <h3 className="text-sm font-semibold t1">{title}</h3>
+        <div className="flex items-center gap-1.5">{badge}{right}</div>
+      </div>
+      <p className="text-xs t3 mb-4">{subtitle}</p>
+      {children}
+    </div>
+  )
+}
+
+const DemoBadge = () => <span className="text-[10px] text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">demo</span>
+
+function ChartPlaceholder({ text }: { text: string }) {
+  return <div className="flex items-center justify-center h-[220px] t3 text-sm text-center px-6">{text}</div>
+}
 
 export function OverviewPage() {
   const { clientId, dateRange, country } = useFilterStore()
   const { clients } = useClientStore()
   const currentClient = clients.find((c) => c.id === clientId)
-  const connected = currentClient?.meta.connected ?? false
-  const googleConnected = currentClient?.google?.connected ?? false
+  const metaConnected = currentClient?.meta.connected ?? false
   const metaAdAccountId = currentClient?.metaAdAccountId ?? null
   const thresholds = currentClient?.settings.thresholds
+  const [channel, setChannel] = useState<Channel>('meta')
   const [tagFilter, setTagFilter] = useState<ActionTagFilter>('all')
-  const [platformView, setPlatformView] = useState<PlatformView>('meta')
   const [cvrSmoothing, setCvrSmoothing] = useState<'daily' | '7day'>('daily')
   const [funnelViewMode, setFunnelViewMode] = useState<'count' | 'percent'>('count')
 
-  // Live Meta hooks — all are no-ops when not connected
   const { data: rawCampaigns, accountInsights, loading: campaignsLoading } = useMetaCampaigns()
-  const { data: dailyRows,    loading: chartsLoading }                     = useMetaDailyInsights()
-  const { data: rawAds,       loading: creativesLoading }                  = useMetaCreatives()
-  // Google campaigns — same no-op-when-disconnected contract as the Meta hooks above.
-  const { data: rawGoogleCampaigns, loading: googleCampaignsLoading }      = useGoogleCampaigns()
+  const { data: metaDailyRows, loading: metaChartsLoading } = useMetaDailyInsights()
+  const { data: rawAds, loading: creativesLoading } = useMetaCreatives()
+  const { data: rawGoogleCampaigns, loading: googleCampaignsLoading } = useGoogleCampaigns()
+  const { data: googleDailyRows } = useGoogleDailyInsights()
+  const { data: ov, connectedSomewhere } = useOverviewMetrics()
+  const { data: productData } = useProductPerformance()
 
-  // ── Mock fallbacks ─────────────────────────────────────────────────────────
-  // mock-data.ts still speaks the old 'all'|'india'|'international' vocabulary —
-  // translate the real country filter into it rather than rewriting the mock module.
+  // Demo mode only when nothing at all is connected for this client.
+  const demo = !connectedSomewhere
   const mockMarket = country === 'all' ? 'all' : country === 'India' ? 'india' : 'international'
-  const mockMetrics   = getSummaryMetrics(clientId, mockMarket)
-  const mockChartData = getChartData(clientId, dateRange, mockMarket).map(d => ({
-    ...d, purchaseValue: d.netSales ?? 0,
-  }))
-  const formatData    = getFormatBreakdown(clientId)
-  const mockCreatives = getCreatives(clientId).slice(0, 4)
-  const alerts        = getAlerts(clientId).filter((a) => !a.isRead)
+  const mock = getSummaryMetrics(clientId, mockMarket)
 
-  // ── Live KPIs ──────────────────────────────────────────────────────────────
-  const acct        = accountInsights ? transformInsightMetrics(accountInsights) : null
-  const spend       = connected ? (acct?.spend        ?? 0) : mockMetrics.adSpend.value
-  const roas        = connected ? (acct?.roas          ?? 0) : mockMetrics.blendedRoas.value
-  const reach       = connected ? (acct?.reach         ?? 0) : mockMetrics.reach.value
-  const ctr         = connected ? (acct?.ctr           ?? 0) : mockMetrics.ctr.value
-  const cpa         = connected ? (acct?.cpa           ?? 0) : mockMetrics.cpa.value
-  const cpm         = connected ? (acct?.cpm           ?? 0) : mockMetrics.cpm.value
-  const impressions = connected ? (acct?.impressions   ?? 0) : 0
-  const clicks      = connected ? (acct?.clicks        ?? 0) : 0
+  // ── Channel status ────────────────────────────────────────────────────────
+  const googleStatus: PlatformStatus = ov?.platformStatus?.google
+    ?? (currentClient?.google?.connected ? 'live' : 'not_connected')
+  const googleDown = googleStatus !== 'live'
+  const channelNA = channel === 'google' && googleDown
+  const naText = googleStatus === 'sync_error' ? 'Google Ads not synced' : 'Google Ads not connected'
+  const blendedExcludesGoogle = channel === 'blended' && googleStatus === 'sync_error'
+  // Name of what the channel-specific cards actually include right now.
+  const chName = blendedExcludesGoogle ? 'Meta' : CHANNEL_NAME[channel]
+  const metaError = ov?.platformErrors?.meta && channel !== 'google' ? ov.platformErrors.meta : null
+  const shopify = !!ov?.connected.shopify
 
-  // ── Cross-channel truth metrics (Shopify-attributed, not platform-reported) ──
-  const { data: overview, connectedSomewhere } = useOverviewMetrics()
-  const sessions        = overview?.current.metaSessions ?? 0
-  const sessionsDelta    = overview?.deltas.metaSessions ?? 0
-  const attributedCPR   = overview?.current.attributedCPR ?? 0
-  const attributedCPRDelta = overview?.deltas.attributedCPR ?? 0
-  const mer             = overview?.current.mer ?? 0
-  const merDelta         = overview?.deltas.mer ?? 0
-  const nCAC             = overview?.current.nCAC ?? 0
-  const nCACAvailable    = overview?.current.newCustomerDataAvailable ?? false
-  const nCACDelta        = overview?.deltas.nCAC ?? 0
-  const overClaim        = overview?.current.overClaimMultiplier ?? 0
-  const googleSpend      = overview?.current.googleSpend ?? 0
-  const countryBreakdown = overview?.countryBreakdown ?? []
-  const totalCountrySpend = countryBreakdown.reduce((s, c) => s + c.netSales, 0)
-  const conversionRate      = overview?.current.conversionRate ?? 0
-  const conversionRateDelta = overview?.deltas.conversionRate ?? 0
+  const f = FIELDS[channel]
+  const cur = (k: keyof PeriodMetrics) => (ov ? Number(ov.current[k]) || 0 : 0)
+  const delta = (k: keyof PeriodMetrics) => (ov ? ov.deltas[k as string] ?? 0 : 0)
 
-  // ── Per-platform ROAS (toggle: Meta / Google / Blended) ───────────────────
-  const platformRoas = {
-    meta: overview?.current.metaRoas ?? 0,
-    google: overview?.current.googleRoas ?? 0,
-    blended: overview?.current.blendedRoas ?? 0,
-  }
-  const heroRoasLabel = { meta: 'Meta ROAS', google: 'Google ROAS', blended: 'Blended ROAS' }[platformView]
-  const heroRoasSubtitle = {
-    meta: 'Facebook & Instagram · platform-reported',
-    google: 'Google Ads · platform-reported',
-    blended: 'Shopify truth ÷ Meta + Google spend',
-  }[platformView]
-  const heroRoas = overview ? platformRoas[platformView] : roas
-  // A live Meta/Google API failure (e.g. Meta's usage throttle) makes
-  // metaRoas/googleRoas come back as a plain 0 — indistinguishable from a
-  // real zero-spend period unless we check platformErrors directly. Surface
-  // it explicitly instead of silently rendering "–" like a genuine zero.
-  const heroRoasError = overview?.platformErrors
-    ? (platformView === 'meta' ? overview.platformErrors.meta
-      : platformView === 'google' ? overview.platformErrors.google
-      : overview.platformErrors.meta || overview.platformErrors.google)
-    : null
-  const platformRoasDelta = {
-    meta: overview?.deltas.metaRoas ?? 0,
-    google: overview?.deltas.googleRoas ?? 0,
-    blended: overview?.deltas.blendedRoas ?? 0,
-  }
-  const heroRoasDelta = overview ? platformRoasDelta[platformView] : mockMetrics.blendedRoas.change
+  // Live account totals straight from Meta are available before the
+  // (slower) cross-channel metrics finish — use them meanwhile for Meta.
+  const acct = accountInsights ? transformInsightMetrics(accountInsights) : null
+  const pick = (k: keyof PeriodMetrics, fallback: number) => (ov ? cur(k) : channel === 'meta' && acct ? fallback : 0)
 
-  // ── Chart data — live when available, mock otherwise ──────────────────────
-  const liveChartData = dailyRows.map(toDailyChartRow)
-  const chartData     = connected && liveChartData.length > 0 ? liveChartData : mockChartData
-  const isLiveCharts  = connected && liveChartData.length > 0
+  const heroRoas = demo ? mock.blendedRoas.value : pick(f.roas, acct?.roas ?? 0)
+  const spend = demo ? mock.adSpend.value : pick(f.spend, acct?.spend ?? 0)
+  const ctr = demo ? mock.ctr.value : pick(f.ctr, acct?.ctr ?? 0)
+  const cpm = demo ? mock.cpm.value : pick(f.cpm, acct?.cpm ?? 0)
+  const sessions = cur(f.sessions)
+  const cpr = cur(f.cpr)
+  const attributedOrders = channel === 'meta' ? cur('metaAttributedOrders') : channel === 'google' ? cur('googleAttributedOrders') : cur('metaAttributedOrders') + cur('googleAttributedOrders')
+  const totalOrders = cur('totalOrders')
 
-  // 7-day trailing average — smooths day-to-day noise in the CVR line without
-  // a new API call; falls back to the raw value for the first few points.
+  const naCard = (label: string, icon?: React.ReactNode) => (
+    <MetricCard label={label} value="NA" subtitle={naText} change={null} improving icon={icon} />
+  )
+
+  // ── Charts per channel ───────────────────────────────────────────────────
+  const metaDays = metaDailyRows.map(metaDay)
+  const googleDays = googleStatus === 'live' ? googleDailyRows.map(googleDay) : []
+  const channelDays = channel === 'meta' ? metaDays : channel === 'google' ? googleDays : mergeDays(metaDays, googleDays)
+  const liveChart = toChartRows(channelDays)
+  const mockChart = getChartData(clientId, dateRange, mockMarket).map((d: any) => ({ ...d, purchaseValue: d.netSales ?? 0, roas: d.roas ?? d.blendedRoas ?? 0 }))
+  const chartData = demo ? mockChart : liveChart
   const cvrChartData = cvrSmoothing === 'daily'
     ? chartData
-    : chartData.map((d, i) => {
-        const window = chartData.slice(Math.max(0, i - 6), i + 1)
-        const avg = window.reduce((s, w) => s + (w.conversionRate ?? 0), 0) / window.length
-        return { ...d, conversionRate: parseFloat(avg.toFixed(2)) }
+    : chartData.map((d: any, i: number) => {
+        const w = chartData.slice(Math.max(0, i - 6), i + 1)
+        return { ...d, conversionRate: parseFloat((w.reduce((s: number, x: any) => s + (x.conversionRate ?? 0), 0) / w.length).toFixed(2)) }
       })
+  const chartEmptyText = channelNA ? `${naText} — no data to chart` : metaChartsLoading ? 'Loading…' : 'No delivery in this window'
+  const chartLabel = channel === 'google' ? 'Google' : channel === 'blended' ? 'Blended' : 'Meta'
 
-  // ── Product behaviour funnel (real Shopify site traffic, no ad spend implied) ──
-  const { data: productData } = useProductPerformance()
+  // ── Funnel (Shopify storefront) ──────────────────────────────────────────
   const funnelTotals = (productData?.products ?? []).reduce((acc, p) => ({
     sessions: acc.sessions + p.sessions,
     addToCart: acc.addToCart + p.addToCart,
     checkoutsInitiated: acc.checkoutsInitiated + p.checkoutsInitiated,
     orders: acc.orders + p.shopifyOrders,
   }), { sessions: 0, addToCart: 0, checkoutsInitiated: 0, orders: 0 })
+  const pctOf = (v: number) => (funnelTotals.sessions > 0 ? (v / funnelTotals.sessions) * 100 : 0)
   const funnelStages: ProductFunnelStage[] = funnelViewMode === 'count'
     ? [
-        { stage: 'Sessions',  value: funnelTotals.sessions },
+        { stage: 'Sessions', value: funnelTotals.sessions },
         { stage: 'Add to Cart', value: funnelTotals.addToCart },
-        { stage: 'Checkout',  value: funnelTotals.checkoutsInitiated },
-        { stage: 'Purchase',  value: funnelTotals.orders },
+        { stage: 'Checkout', value: funnelTotals.checkoutsInitiated },
+        { stage: 'Purchase', value: funnelTotals.orders },
       ]
     : [
-        { stage: 'Sessions',  value: funnelTotals.sessions > 0 ? 100 : 0 },
-        { stage: 'Add to Cart', value: funnelTotals.sessions > 0 ? (funnelTotals.addToCart / funnelTotals.sessions) * 100 : 0 },
-        { stage: 'Checkout',  value: funnelTotals.sessions > 0 ? (funnelTotals.checkoutsInitiated / funnelTotals.sessions) * 100 : 0 },
-        { stage: 'Purchase',  value: funnelTotals.sessions > 0 ? (funnelTotals.orders / funnelTotals.sessions) * 100 : 0 },
+        { stage: 'Sessions', value: funnelTotals.sessions > 0 ? 100 : 0 },
+        { stage: 'Add to Cart', value: pctOf(funnelTotals.addToCart) },
+        { stage: 'Checkout', value: pctOf(funnelTotals.checkoutsInitiated) },
+        { stage: 'Purchase', value: pctOf(funnelTotals.orders) },
       ]
-  const hasFunnelData = funnelTotals.sessions > 0
+
+  // ── Creative format (real when Meta is connected) ────────────────────────
+  const formatData = metaConnected && rawAds.length > 0 ? formatBreakdown(rawAds) : demo ? getFormatBreakdown(clientId) : []
 
   // ── Top campaigns ─────────────────────────────────────────────────────────
-  const allTransformed = rawCampaigns
-    .map(transformMetaCampaign)
-    .filter((c): c is NonNullable<ReturnType<typeof transformMetaCampaign>> => c !== null)
-
-  const googleTransformed = rawGoogleCampaigns.map(transformGoogleCampaign)
-
-  const campaignsForPlatform =
-    platformView === 'meta' ? allTransformed :
-    platformView === 'google' ? googleTransformed :
-    [...allTransformed, ...googleTransformed]
-
-  const showCampaignsSection = connected || googleConnected
-
-  const liveCampaigns = campaignsForPlatform
+  const metaCampaigns = rawCampaigns.map(transformMetaCampaign).filter((c): c is NonNullable<ReturnType<typeof transformMetaCampaign>> => c !== null)
+  const googleCampaigns = googleDown ? [] : rawGoogleCampaigns.map(transformGoogleCampaign)
+  const campaignsForChannel = channel === 'meta' ? metaCampaigns : channel === 'google' ? googleCampaigns : [...metaCampaigns, ...googleCampaigns]
+  const topCampaigns = campaignsForChannel
     .filter((c) => tagFilter === 'all' || c.actionTag === tagFilter)
     .sort((a, b) => (TAG_ORDER[a.actionTag ?? ''] ?? 3) - (TAG_ORDER[b.actionTag ?? ''] ?? 3) || b.roas - a.roas)
     .slice(0, 5)
+  const campaignsLoadingAny = campaignsLoading || googleCampaignsLoading
 
   // ── Top creatives ─────────────────────────────────────────────────────────
   const liveCreatives = rawAds.slice(0, 4).map(toCreativeShape)
-  const topCreatives  = connected && liveCreatives.length > 0 ? liveCreatives : mockCreatives
+  const topCreatives = metaConnected && liveCreatives.length > 0 ? liveCreatives : demo ? getCreatives(clientId).slice(0, 4) : []
 
-  // ── AI Insights payload — built from data already fetched above, sent to
-  // the backend (which calls the LLM) only when the owner clicks "Generate" ──
-  const allCreativesForInsights = rawAds.map(toCreativeShape)
-  const insightsPayload: InsightsPayload | null = connected && acct
-    ? {
-        account: {
-          spend: acct.spend, roas: acct.roas, ctr: acct.ctr, cpa: acct.cpa,
-          cpm: acct.cpm, reach: acct.reach, impressions: acct.impressions, clicks: acct.clicks,
-        },
-        campaigns: allTransformed.map((c) => ({
-          id: c.id, name: c.name, spend: c.spend, roas: c.roas, ctr: c.ctr, cpa: c.cpa,
-          frequency: c.frequency, conversions: c.conversions, objective: c.objective, status: c.status,
-        })),
-        creatives: allCreativesForInsights.map((cr) => ({
-          id: cr.id, name: cr.name, format: cr.format, spend: cr.spend, roas: cr.roas,
-          ctr: cr.ctr, frequency: cr.frequency,
-        })),
-      }
-    : null
+  // ── Channel & country split ──────────────────────────────────────────────
+  const metaSpendTotal = ov ? cur('metaSpend') : acct?.spend ?? 0
+  const googleSpendTotal = ov && !googleDown ? cur('googleSpend') : 0
+  const countryBreakdown = ov?.countryBreakdown ?? []
+  const totalCountrySales = countryBreakdown.reduce((s, c) => s + c.netSales, 0)
+  const conversionRate = cur('conversionRate')
 
-  const loading = campaignsLoading || chartsLoading || creativesLoading
+  const liveSources = [metaConnected && 'Meta', googleStatus === 'live' && 'Google', shopify && 'Shopify'].filter(Boolean).join(' + ')
 
   return (
     <div className="space-y-5 animate-fade-in">
 
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="flex items-end justify-between">
+      {/* ── Header + channel switch ─────────────────────────────── */}
+      <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold t1">Overview</h1>
-          <p className="text-sm t3 mt-0.5">
-            {connected ? 'Live Meta data' : 'Demo data · Connect Meta to see live metrics'}
-          </p>
+          <p className="text-sm t3 mt-0.5">{demo ? 'Demo data · connect Meta, Google or Shopify to see live metrics' : `Live · ${liveSources || 'connecting…'}`}</p>
         </div>
         <div className="flex items-center gap-2">
-          {connected && loading && <Loader2 size={13} className="animate-spin t3" />}
-          {connected && (
-            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg">Live</span>
-          )}
+          {!demo && (campaignsLoading || creativesLoading || metaChartsLoading) && <Loader2 size={13} className="animate-spin t3" />}
+          <span className="text-[11px] t3 font-medium">Channel</span>
+          <div className="flex items-center gap-0.5 bg-surface-2 rounded-lg p-0.5 border border-theme">
+            {CHANNELS.map((c) => (
+              <button
+                key={c.value}
+                onClick={() => setChannel(c.value)}
+                className={clsx('flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                  channel === c.value ? 'bg-indigo-600 text-white shadow-sm' : 't2 hover:t1')}
+              >
+                {c.label}
+                {c.value === 'google' && googleStatus === 'sync_error' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" title="Not syncing" />}
+              </button>
+            ))}
+          </div>
           <span className="text-[11px] t3 font-medium bg-surface-2 border border-theme px-2.5 py-1 rounded-lg">{dateRange} window</span>
         </div>
       </div>
 
-      {/* ── Hero KPIs ───────────────────────────────────────────── */}
+      {(channel === 'google' || channel === 'blended') && googleStatus === 'sync_error' && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
+          <PlugZap size={14} className="shrink-0 mt-0.5" />
+          <span>
+            <span className="font-semibold">Google Ads isn't syncing.</span> The saved connection no longer works, so Google figures show NA
+            {channel === 'blended' ? ' and Blended numbers currently reflect Meta only' : ''}. Reconnect Google Ads from the client's connections to resume.
+          </span>
+        </div>
+      )}
+
+      {/* ── Primary cards ───────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="col-span-2 lg:col-span-2">
           <div className="relative flex flex-col gap-2.5 rounded-xl border p-4 h-full bg-gradient-to-br from-indigo-600/15 to-violet-600/10 border-indigo-500/40 dark:border-indigo-500/30 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-semibold uppercase tracking-wider t3 inline-flex items-center gap-1">
-                {overview ? heroRoasLabel : (connected ? 'Meta ROAS' : 'Blended ROAS')}
-                {overview && <MetricInfoTooltip metricId={`${platformView}Roas`} size="sm" />}
+                {channel === 'blended' ? 'Platform ROAS' : `${CHANNEL_NAME[channel]} ROAS`}
+                {ov && <MetricInfoTooltip metricId={ROAS_METRIC_ID[channel]} size="sm" />}
               </span>
-              {overview ? (
-                <div className="flex items-center gap-0.5 bg-white/40 dark:bg-black/20 rounded-md p-0.5">
-                  {PLATFORM_VIEWS.map((p) => (
-                    <button
-                      key={p.value}
-                      onClick={() => setPlatformView(p.value)}
-                      className={clsx(
-                        'px-1.5 py-0.5 text-[10px] font-semibold rounded transition-colors',
-                        platformView === p.value ? 'bg-indigo-600 text-white' : 't3 hover:t1'
-                      )}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <TrendingUp size={15} className="t3" />
-              )}
+              <TrendingUp size={15} className="t3" />
             </div>
             <div>
-              <p className="text-4xl font-bold tracking-tight text-gradient">{heroRoasError ? '–' : formatRoas(overview ? heroRoas : roas)}</p>
-              <p className="text-xs t3 mt-0.5">{overview ? heroRoasSubtitle : (connected ? 'Facebook & Instagram' : 'across Meta + Google')}</p>
+              <p className="text-4xl font-bold tracking-tight text-gradient">{channelNA ? 'NA' : metaError ? '–' : formatRoas(heroRoas)}</p>
+              <p className="text-xs t3 mt-0.5">{channelNA ? naText : blendedExcludesGoogle ? 'Meta only · Google not synced' : ROAS_SUBTITLE[channel]}</p>
             </div>
-            {heroRoasError ? (
+            {channelNA ? null : metaError ? (
               <p className="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-                <AlertTriangle size={12} className="shrink-0" />
-                Temporarily unavailable — retrying automatically
+                <AlertTriangle size={12} className="shrink-0" /> Temporarily unavailable — retrying automatically
               </p>
             ) : (
               <div className="flex items-center gap-1.5">
-                <TrendBadge change={heroRoasDelta} improving={heroRoasDelta >= 0} />
-                <span className="text-[11px] t3">vs prev period</span>
+                <TrendBadge change={demo ? mock.blendedRoas.change : delta(f.roas)} improving={(demo ? mock.blendedRoas.change : delta(f.roas)) >= 0} />
+                <span className="text-[11px] t3">vs prev {dateRange}</span>
               </div>
             )}
           </div>
         </div>
-        <MetricCard label="Ad Spend" value={formatCurrency(spend)} change={connected ? 0 : mockMetrics.adSpend.change} improving={mockMetrics.adSpend.improving} icon={<IndianRupee size={15} />} />
-        <MetricCard
-          label="Sessions"
-          value={overview?.connected.shopify ? formatNumber(sessions) : '—'}
-          subtitle={overview?.connected.shopify ? 'from Meta (UTM-attributed)' : 'Connect Shopify to see this'}
-          change={sessionsDelta} improving={sessionsDelta >= 0}
-          icon={<Eye size={15} />}
-          metricId={overview?.connected.shopify ? 'metaSessions' : undefined}
-        />
-        <MetricCard
-          label="Attributed CPR"
-          value={overview?.connected.shopify ? formatCurrency(attributedCPR) : (connected ? formatCurrency(cpa) : formatCurrency(mockMetrics.cpa.value))}
-          subtitle={overview?.connected.shopify ? 'Meta spend ÷ Shopify orders' : undefined}
-          change={overview?.connected.shopify ? attributedCPRDelta : (connected ? 0 : mockMetrics.cpa.change)}
-          improving={overview?.connected.shopify ? attributedCPRDelta <= 0 : mockMetrics.cpa.improving}
-          icon={<Layers size={15} />}
-          metricId={overview?.connected.shopify ? 'attributedCPR' : undefined}
-          status={overview?.connected.shopify ? getMetricStatus('attributedCPR', attributedCPR, thresholds) : null}
-        />
+
+        {channelNA ? naCard('Ad Spend', <IndianRupee size={15} />) : (
+          <MetricCard
+            label="Ad Spend" value={formatCurrency(spend)}
+            subtitle={blendedExcludesGoogle ? 'Meta only · Google not synced' : CHANNEL_NAME[channel]}
+            change={demo ? mock.adSpend.change : ov ? delta(f.spend) : null} improving
+            icon={<IndianRupee size={15} />}
+          />
+        )}
+
+        {channelNA ? naCard('Sessions', <Eye size={15} />) : (
+          <MetricCard
+            label="Sessions"
+            value={shopify ? Math.round(sessions).toLocaleString('en-IN') : '—'}
+            subtitle={shopify ? `Shopify sessions from ${chName} ads (UTM)` : 'Connect Shopify to see this'}
+            change={shopify ? delta(f.sessions) : null} improving={delta(f.sessions) >= 0}
+            icon={<Eye size={15} />}
+            metricId={shopify ? 'metaSessions' : undefined}
+          />
+        )}
+
+        {channelNA ? naCard('Attributed CPR', <Layers size={15} />) : (
+          <MetricCard
+            label="Attributed CPR"
+            value={!shopify ? '—' : attributedOrders > 0 ? formatCurrency(cpr) : '—'}
+            subtitle={!shopify
+              ? 'Connect Shopify to see this'
+              : attributedOrders > 0
+                ? `${chName} spend ÷ ${formatNumber(attributedOrders)} of ${formatNumber(totalOrders)} Shopify orders traced to it`
+                : `No Shopify orders traced to ${chName} ads in this window`}
+            change={shopify && attributedOrders > 0 ? delta(f.cpr) : null}
+            improving={delta(f.cpr) <= 0}
+            icon={<Layers size={15} />}
+            metricId={shopify ? 'attributedCPR' : undefined}
+            status={shopify && attributedOrders > 0 ? getMetricStatus('attributedCPR', cpr, thresholds) : null}
+          />
+        )}
       </div>
 
-      {/* ── Secondary metrics — right below hero KPIs, all key numbers together ── */}
-      <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
-        <MetricCard size="sm" label="CTR"        value={formatPercent(ctr)}                                            change={connected ? 0 : mockMetrics.ctr.change}             improving={mockMetrics.ctr.improving} />
-        <MetricCard size="sm" label="CPM"        value={formatCurrency(cpm)}                                           change={connected ? 0 : mockMetrics.cpm.change}             improving={mockMetrics.cpm.improving} />
-        {connected ? (
+      {/* ── Secondary cards ─────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+        {channelNA ? (
           <>
-            <MetricCard size="sm" label="Impressions" value={formatNumber(impressions)} change={0} improving />
-            <MetricCard size="sm" label="Clicks"      value={formatNumber(clicks)}      change={0} improving />
+            <MetricCard size="sm" label="CTR" value="NA" subtitle={naText} change={null} improving />
+            <MetricCard size="sm" label="CPM" value="NA" subtitle={naText} change={null} improving />
           </>
         ) : (
           <>
-            <MetricCard size="sm" label="Attrib. ROAS" value={formatRoas(mockMetrics.attributedRoas.value)}   change={mockMetrics.attributedRoas.change} improving={mockMetrics.attributedRoas.improving} />
-            <MetricCard size="sm" label="CAC"           value={formatCurrency(mockMetrics.cac.value)}          change={mockMetrics.cac.change}            improving={mockMetrics.cac.improving} />
+            <MetricCard size="sm" label="CTR" value={formatPercent(ctr, 2)} subtitle={chName}
+              change={demo ? mock.ctr.change : ov ? delta(f.ctr) : null} improving={(demo ? mock.ctr.change : delta(f.ctr)) >= 0} />
+            <MetricCard size="sm" label="CPM" value={formatCurrency(cpm, false)} subtitle={chName}
+              change={demo ? mock.cpm.change : ov ? delta(f.cpm) : null} improving={(demo ? mock.cpm.change : delta(f.cpm)) <= 0} />
           </>
         )}
         <MetricCard
           size="sm" label="Conv. Rate"
-          value={overview?.connected.shopify ? formatPercent(conversionRate) : '—'}
-          subtitle={overview?.connected.shopify ? 'total orders ÷ total sessions' : undefined}
-          change={conversionRateDelta} improving={conversionRateDelta >= 0}
-          metricId={overview?.connected.shopify ? 'conversionRate' : undefined}
+          value={shopify ? formatPercent(conversionRate, 3) : '—'}
+          subtitle={shopify ? 'All channels · Shopify orders ÷ sessions' : 'Connect Shopify to see this'}
+          change={shopify ? delta('conversionRate') : null} improving={delta('conversionRate') >= 0}
+          metricId={shopify ? 'conversionRate' : undefined}
         />
         <MetricCard
-          size="sm" label="MER"
-          value={overview ? formatRoas(mer) : '—'}
-          change={merDelta} improving={merDelta >= 0}
+          size="sm" label="Blended ROAS"
+          value={ov && shopify ? formatRoas(cur('mer')) : '—'}
+          subtitle={!shopify ? 'Connect Shopify to see this' : googleStatus === 'sync_error' ? 'All channels · Shopify revenue ÷ ad spend (Google not synced)' : 'All channels · Shopify revenue ÷ ad spend'}
+          change={ov && shopify ? delta('mer') : null} improving={delta('mer') >= 0}
           metricId="mer"
-          status={overview ? getMetricStatus('mer', mer, thresholds) : null}
-        />
-        <MetricCard
-          size="sm" label="New-Cust CAC"
-          value={nCACAvailable ? formatCurrency(nCAC) : '—'}
-          change={nCACAvailable ? nCACDelta : 0} improving={nCACAvailable ? nCACDelta <= 0 : true}
-          metricId="nCAC"
-          status={nCACAvailable ? getMetricStatus('nCAC', nCAC, thresholds) : null}
-        />
-        <MetricCard
-          size="sm" label="Platform Over-claim"
-          value={overview && overview.current.shopifyNetRevenue > 0 ? `${overClaim.toFixed(1)}×` : '—'}
-          change={0} improving
-          metricId="overClaimMultiplier"
-          status={overview && overview.current.shopifyNetRevenue > 0 ? getMetricStatus('overClaimMultiplier', overClaim, thresholds) : null}
+          status={ov && shopify ? getMetricStatus('mer', cur('mer'), thresholds) : null}
         />
       </div>
-      {overview && !nCACAvailable && overview.connected.shopify && (
-        <p className="text-[11px] t3 -mt-3">
-          New-Customer CAC needs one more Shopify permission — <Link to="/settings" className="text-indigo-500 hover:underline">reconnect Shopify</Link> to enable it.
-        </p>
-      )}
 
-      {/* ── AI Insights ─────────────────────────────────────────── */}
-      {connectedSomewhere && <CrossChannelInsightsTeaser clientId={clientId} />}
-
-      {connected && <InsightsPanel payload={insightsPayload} adAccountId={metaAdAccountId} />}
-
-      {/* ── Charts ──────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="card p-4 lg:col-span-3">
-          <div className="flex items-center justify-between mb-0.5">
-            <h3 className="text-sm font-semibold t1">Meta Spend vs Purchase Value</h3>
-            {!isLiveCharts && <span className="text-[10px] text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">demo</span>}
-          </div>
-          <p className="text-xs t3 mb-4">Daily ad spend · attributed purchase value (spend × ROAS)</p>
-          <SpendVsSalesChart data={chartData} />
-        </div>
-        <div className="card p-4 lg:col-span-2">
-          <div className="flex items-center justify-between mb-0.5">
-            <h3 className="text-sm font-semibold t1">ROAS Trend</h3>
-            {!isLiveCharts && <span className="text-[10px] text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">demo</span>}
-          </div>
-          <p className="text-xs t3 mb-4">Daily Meta ROAS · target 4.5x</p>
-          <RoasChart data={chartData.map(d => ({ ...d, roas: (d as any).roas ?? (d as any).blendedRoas ?? 0 }))} target={4.5} />
-        </div>
-      </div>
-
-      {/* ── CVR Trend + Product Behaviour ──────────────────────────── */}
+      {/* ── Trend charts, in the client's order ─────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-0.5">
-            <h3 className="text-sm font-semibold t1">CVR Trend</h3>
-            <div className="flex items-center gap-1.5">
-              {!isLiveCharts && <span className="text-[10px] text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">demo</span>}
-              <div className="flex items-center gap-0.5 bg-surface-2 rounded-md p-0.5 border border-theme">
-                {(['daily', '7day'] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setCvrSmoothing(m)}
-                    className={clsx(
-                      'px-2 py-0.5 text-[10px] font-medium rounded transition-colors',
-                      cvrSmoothing === m ? 'bg-indigo-600 text-white' : 't3 hover:t1'
-                    )}
-                  >
-                    {m === 'daily' ? 'Daily' : '7D avg'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <p className="text-xs t3 mb-4">Purchases ÷ link clicks{cvrSmoothing === '7day' ? ' · 7-day trailing average' : ' · daily'}</p>
-          <ConversionRateChart data={cvrChartData} />
-        </div>
+        <ChartCard title="ROAS Trend" subtitle={`Daily ${chartLabel} ROAS (platform-reported) · target 4.5x`} badge={demo ? <DemoBadge /> : undefined}>
+          {chartData.length > 0 ? <RoasChart data={chartData} target={4.5} lineLabel={`${chartLabel} ROAS`} /> : <ChartPlaceholder text={chartEmptyText} />}
+        </ChartCard>
 
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-0.5">
-            <h3 className="text-sm font-semibold t1">Product Behaviour</h3>
+        <ChartCard
+          title="CVR Trend"
+          subtitle={`${chartLabel} purchases ÷ clicks${cvrSmoothing === '7day' ? ' · 7-day trailing average' : ' · daily'}`}
+          badge={demo ? <DemoBadge /> : undefined}
+          right={
+            <div className="flex items-center gap-0.5 bg-surface-2 rounded-md p-0.5 border border-theme">
+              {(['daily', '7day'] as const).map((m) => (
+                <button key={m} onClick={() => setCvrSmoothing(m)}
+                  className={clsx('px-2 py-0.5 text-[10px] font-medium rounded transition-colors', cvrSmoothing === m ? 'bg-indigo-600 text-white' : 't3 hover:t1')}>
+                  {m === 'daily' ? 'Daily' : '7D avg'}
+                </button>
+              ))}
+            </div>
+          }
+        >
+          {cvrChartData.length > 0 ? <ConversionRateChart data={cvrChartData} /> : <ChartPlaceholder text={chartEmptyText} />}
+        </ChartCard>
+
+        <ChartCard title="Spend vs Purchase Value Trend" subtitle={`Daily ${chartLabel} spend · platform-reported purchase value`} badge={demo ? <DemoBadge /> : undefined}>
+          {chartData.length > 0 ? <SpendVsSalesChart data={chartData} spendLabel={`${chartLabel} Spend`} /> : <ChartPlaceholder text={chartEmptyText} />}
+        </ChartCard>
+
+        <ChartCard title="Spend by Creative Format" subtitle="Meta · top 25 ads by spend, last 30 days · spend and ROAS per format" badge={demo ? <DemoBadge /> : undefined}>
+          {formatData.length > 0 ? <FormatBreakdownChart data={formatData} /> : <ChartPlaceholder text={metaConnected ? (creativesLoading ? 'Loading…' : 'No ad delivery in the last 30 days') : 'Connect Meta to see creative formats'} />}
+        </ChartCard>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <ChartCard
+          title="Funnel Conversion Rate Trend"
+          subtitle="Shopify storefront · sessions → add to cart → checkout → purchase"
+          right={
             <div className="flex items-center gap-0.5 bg-surface-2 rounded-md p-0.5 border border-theme">
               {(['count', 'percent'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setFunnelViewMode(m)}
-                  className={clsx(
-                    'px-2 py-0.5 text-[10px] font-medium rounded transition-colors',
-                    funnelViewMode === m ? 'bg-indigo-600 text-white' : 't3 hover:t1'
-                  )}
-                >
+                <button key={m} onClick={() => setFunnelViewMode(m)}
+                  className={clsx('px-2 py-0.5 text-[10px] font-medium rounded transition-colors', funnelViewMode === m ? 'bg-indigo-600 text-white' : 't3 hover:t1')}>
                   {m === 'count' ? 'Count' : '% of sessions'}
                 </button>
               ))}
             </div>
-          </div>
-          <p className="text-xs t3 mb-4">
-            Sessions → cart → checkout → purchase · real Shopify site traffic, no ad spend implied
-          </p>
-          {hasFunnelData ? (
-            <ProductFunnelChart data={funnelStages} mode={funnelViewMode} />
-          ) : (
-            <div className="flex items-center justify-center h-[220px] t3 text-sm">
-              Connect Shopify to see product behaviour
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Spend & Country split ────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-0.5">
-            <h3 className="text-sm font-semibold t1">Spend by Creative Format</h3>
-            <span className="text-[10px] text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded">demo</span>
-          </div>
-          <p className="text-xs t3 mb-4">Distribution + ROAS by format</p>
-          <FormatBreakdownChart data={formatData} />
-        </div>
+          }
+        >
+          {funnelTotals.sessions > 0 ? <ProductFunnelChart data={funnelStages} mode={funnelViewMode} /> : <ChartPlaceholder text="Connect Shopify to see the storefront funnel" />}
+        </ChartCard>
 
         <div className="card p-4 flex flex-col gap-4">
           <div>
             <h3 className="text-sm font-semibold t1 mb-0.5">Channel & Country Split</h3>
-            <p className="text-xs t3">Ad spend by platform · revenue by country</p>
+            <p className="text-xs t3">Ad spend by platform · Shopify revenue by country</p>
           </div>
-          <div>
-            {(() => {
-              const totalAdSpend = spend + googleSpend
-              const metaPct = totalAdSpend > 0 ? Math.round((spend / totalAdSpend) * 100) : (spend > 0 ? 100 : 0)
-              const googlePct = 100 - metaPct
-              return (
-                <>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium t2">Meta Ads</span>
-                    <span className="text-xs font-bold text-indigo-500 dark:text-indigo-400">{metaPct}% · {formatCurrency(spend)}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
-                    <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${metaPct}%` }} />
-                  </div>
-                  {overview?.connected.google ? (
-                    <>
-                      <div className="flex items-center justify-between mt-3 mb-2">
-                        <span className="text-xs font-medium t2">Google Ads</span>
-                        <span className="text-xs font-bold text-amber-500">{googlePct}% · {formatCurrency(googleSpend)}</span>
-                      </div>
-                      <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
-                        <div className="h-full bg-amber-500 rounded-full" style={{ width: `${googlePct}%` }} />
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-[10px] t3 mt-1.5">Google Ads — not connected</p>
-                  )}
-                </>
-              )
-            })()}
-          </div>
+          {(() => {
+            const total = metaSpendTotal + googleSpendTotal
+            const metaPct = total > 0 ? Math.round((metaSpendTotal / total) * 100) : 0
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium t2">Meta Ads</span>
+                  <span className="text-xs font-bold text-indigo-500 dark:text-indigo-400">{metaPct}% · {formatCurrency(metaSpendTotal)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-surface-3 overflow-hidden"><div className="h-full bg-indigo-500 rounded-full" style={{ width: `${metaPct}%` }} /></div>
+                {googleStatus === 'live' ? (
+                  <>
+                    <div className="flex items-center justify-between mt-3 mb-2">
+                      <span className="text-xs font-medium t2">Google Ads</span>
+                      <span className="text-xs font-bold text-amber-500">{100 - metaPct}% · {formatCurrency(googleSpendTotal)}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-surface-3 overflow-hidden"><div className="h-full bg-amber-500 rounded-full" style={{ width: `${100 - metaPct}%` }} /></div>
+                  </>
+                ) : (
+                  <p className="text-[10px] t3 mt-1.5">Google Ads — {googleStatus === 'sync_error' ? 'not synced (NA)' : 'not connected'}</p>
+                )}
+              </div>
+            )
+          })()}
           <div className="border-t border-theme pt-4 space-y-3">
             {countryBreakdown.length === 0 ? (
               <p className="text-[11px] t3">Connect Shopify to see revenue by country</p>
-            ) : (
-              countryBreakdown.slice(0, 3).map((c, i) => {
-                const pct = totalCountrySpend > 0 ? Math.round((c.netSales / totalCountrySpend) * 100) : 0
-                const bars = ['bg-orange-400', 'bg-blue-400', 'bg-emerald-400']
-                const colors = ['text-orange-500', 'text-blue-500', 'text-emerald-500']
-                return (
-                  <div key={c.country}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium t2">{c.country}</span>
-                      <span className={`text-xs font-bold ${colors[i]}`}>{pct}% · {formatCurrency(c.netSales)}</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-surface-3 overflow-hidden">
-                      <div className={`h-full ${bars[i]} rounded-full`} style={{ width: `${pct}%` }} />
-                    </div>
+            ) : countryBreakdown.slice(0, 3).map((c, i) => {
+              const p = totalCountrySales > 0 ? Math.round((c.netSales / totalCountrySales) * 100) : 0
+              return (
+                <div key={c.country}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium t2">{c.country}</span>
+                    <span className={clsx('text-xs font-bold', ['text-orange-500', 'text-blue-500', 'text-emerald-500'][i])}>{p}% · {formatCurrency(c.netSales)}</span>
                   </div>
-                )
-              })
-            )}
-          </div>
-          <div className="grid grid-cols-3 gap-3 border-t border-theme pt-4">
-            {[
-              { label: 'Reach',  value: formatNumber(reach), icon: <Eye size={13} /> },
-              { label: 'CPM',    value: formatCurrency(cpm), icon: <BarChart2 size={13} /> },
-              { label: 'Clicks', value: formatNumber(clicks || mockMetrics.sessions.value), icon: <Globe size={13} /> },
-            ].map(item => (
-              <div key={item.label} className="text-center">
-                <div className="flex items-center justify-center gap-1 t3 mb-1">
-                  {item.icon}
-                  <span className="text-[10px] font-semibold uppercase tracking-wide">{item.label}</span>
+                  <div className="h-2 rounded-full bg-surface-3 overflow-hidden"><div className={clsx('h-full rounded-full', ['bg-orange-400', 'bg-blue-400', 'bg-emerald-400'][i])} style={{ width: `${p}%` }} /></div>
                 </div>
-                <p className="text-sm font-bold t1">{item.value}</p>
-              </div>
-            ))}
+              )
+            })}
           </div>
+          {acct && (
+            <div className="grid grid-cols-3 gap-3 border-t border-theme pt-4">
+              {[
+                { label: 'Meta Reach', value: formatNumber(acct.reach), icon: <Eye size={13} /> },
+                { label: 'Meta CPM', value: formatCurrency(acct.cpm, false), icon: <BarChart2 size={13} /> },
+                { label: 'Meta Clicks', value: formatNumber(acct.clicks), icon: <Globe size={13} /> },
+              ].map((item) => (
+                <div key={item.label} className="text-center">
+                  <div className="flex items-center justify-center gap-1 t3 mb-1">{item.icon}<span className="text-[10px] font-semibold uppercase tracking-wide">{item.label}</span></div>
+                  <p className="text-sm font-bold t1">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -577,57 +534,33 @@ export function OverviewPage() {
         <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
           <div>
             <h3 className="text-sm font-semibold t1">
-              Top Campaigns
-              {showCampaignsSection && <span className="ml-2 text-[10px] font-normal text-emerald-500 dark:text-emerald-400">· live · scale first</span>}
+              Top Campaigns · {CHANNEL_NAME[channel]}
+              {!demo && !channelNA && <span className="ml-2 text-[10px] font-normal text-emerald-500 dark:text-emerald-400">· live · scale first</span>}
             </h3>
             <p className="text-xs t3 mt-0.5">
-              {showCampaignsSection
-                ? `${liveCampaigns.length} of ${campaignsForPlatform.length} · click to expand Ad Sets → Ads`
-                : 'Connect Meta or Google to see live campaigns'}
+              {channelNA ? naText : `${topCampaigns.length} of ${campaignsForChannel.length} · click to expand Ad Sets → Ads`}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
-              {PLATFORM_VIEWS.map((p) => (
-                <button
-                  key={p.value}
-                  onClick={() => setPlatformView(p.value)}
-                  className={clsx(
-                    'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
-                    platformView === p.value ? 'bg-indigo-600 text-white shadow-sm' : 't2 hover:t1'
-                  )}
-                >
-                  {p.label}
+              {ACTION_TAG_FILTERS.map((t) => (
+                <button key={t.value} onClick={() => setTagFilter(t.value)}
+                  className={clsx('px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors', tagFilter === t.value ? t.activeClass + ' shadow-sm' : 't2 hover:t1')}>
+                  {t.label}
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-theme">
-              {ACTION_TAG_FILTERS.map((f) => (
-                <button
-                  key={f.value}
-                  onClick={() => setTagFilter(f.value)}
-                  className={clsx(
-                    'px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors',
-                    tagFilter === f.value ? f.activeClass + ' shadow-sm' : 't2 hover:t1'
-                  )}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            <Link to={platformView === 'google' ? '/google' : '/meta'} className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-medium transition-colors">
+            <Link to={channel === 'google' ? '/google' : '/meta'} className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 font-medium transition-colors">
               View all <ArrowRight size={12} />
             </Link>
           </div>
         </div>
-        {showCampaignsSection && (campaignsLoading || googleCampaignsLoading) && liveCampaigns.length === 0 ? (
-          <div className="flex items-center gap-2 text-xs t3 py-8 justify-center">
-            <Loader2 size={14} className="animate-spin" /> Loading live campaigns…
-          </div>
+        {!channelNA && campaignsLoadingAny && topCampaigns.length === 0 ? (
+          <div className="flex items-center gap-2 text-xs t3 py-8 justify-center"><Loader2 size={14} className="animate-spin" /> Loading live campaigns…</div>
         ) : (
           <CampaignTable
-            campaigns={showCampaignsSection ? liveCampaigns : []}
-            emptyMessage={showCampaignsSection ? 'Loading campaigns…' : 'Connect Meta or Google to see live campaigns'}
+            campaigns={topCampaigns}
+            emptyMessage={channelNA ? `${naText} — campaigns will appear once it syncs` : demo ? 'Connect Meta or Google to see live campaigns' : 'No campaigns with delivery in this window'}
             adAccountId={metaAdAccountId}
             enableFunnelToggle
           />
@@ -640,44 +573,29 @@ export function OverviewPage() {
           <div>
             <h3 className="text-sm font-semibold t1">
               Top Creatives
-              {connected && liveCreatives.length > 0 && <span className="ml-2 text-[10px] font-normal text-emerald-500 dark:text-emerald-400">· live</span>}
+              {metaConnected && liveCreatives.length > 0 && <span className="ml-2 text-[10px] font-normal text-emerald-500 dark:text-emerald-400">· live</span>}
             </h3>
-            <p className="text-xs t3 mt-0.5">By spend · Top 4</p>
+            <p className="text-xs t3 mt-0.5">Meta · by spend · top 4</p>
           </div>
           <Link to="/creatives" className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 font-medium transition-colors">
             All creatives <ChevronRight size={12} />
           </Link>
         </div>
-        {connected && creativesLoading && liveCreatives.length === 0 ? (
-          <div className="flex items-center gap-2 text-xs t3 py-6 justify-center">
-            <Loader2 size={14} className="animate-spin" /> Loading creatives…
+        {metaConnected && creativesLoading && liveCreatives.length === 0 ? (
+          <div className="flex items-center gap-2 text-xs t3 py-6 justify-center"><Loader2 size={14} className="animate-spin" /> Loading creatives…</div>
+        ) : topCreatives.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {topCreatives.map((cr: any, i: number) => <CreativeCard key={cr.id ?? i} creative={cr} adAccountId={metaAdAccountId} />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {topCreatives.map((cr, i) => <CreativeCard key={cr.id ?? i} creative={cr} adAccountId={metaAdAccountId} />)}
-          </div>
+          <p className="text-xs t3 py-6 text-center">Connect Meta to see top creatives</p>
         )}
       </div>
 
-      <ReconciliationSection overview={overview} />
+      <ReconciliationSection overview={ov} />
 
-      {/* ── Alerts ──────────────────────────────────────────────── */}
-      {alerts.length > 0 && (
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-semibold t1">Active Alerts</h3>
-              <p className="text-xs t3 mt-0.5">{alerts.length} requiring attention</p>
-            </div>
-            <Link to="/alerts" className="flex items-center gap-1 text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 font-medium transition-colors">
-              View all <ChevronRight size={12} />
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {alerts.map((a) => <AlertCard key={a.id} alert={a} />)}
-          </div>
-        </div>
-      )}
+      {/* ── Actionables (moved to the bottom) ──────────────────── */}
+      {!demo && <ActionablesTeaser />}
     </div>
   )
 }

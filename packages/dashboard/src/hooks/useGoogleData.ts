@@ -66,7 +66,7 @@ export interface GoogleAccountInsightsRaw {
 // ─── useGoogleCampaigns ───────────────────────────────────────────────────────
 export function useGoogleCampaigns() {
   const { clientId, dateRange } = useFilterStore()
-  const { clients, setGoogleDisconnected } = useClientStore()
+  const { clients, setGoogleSyncError } = useClientStore()
   const currentClient = clients.find((c) => c.id === clientId)
   const connected = currentClient?.google?.connected ?? false
 
@@ -112,7 +112,9 @@ export function useGoogleCampaigns() {
         // Matches the same distinction already made in useMetaData.ts.
         if (r.status === 401) {
           if (json.error === 'Google Ads not connected.') {
-            setGoogleDisconnected(clientId)
+            // Status said connected moments ago, so the saved token just
+            // stopped refreshing — a sync interruption, not "never connected".
+            setGoogleSyncError(clientId)
             return null
           }
           useAuthStore.getState().logout()
@@ -172,4 +174,39 @@ export function useGoogleAdGroups(campaignId: string | null) {
   }, [campaignId, clientId, dateRange])
 
   return { adGroups, loading, error }
+}
+
+// ─── useGoogleDailyInsights ───────────────────────────────────────────────────
+// Daily Google spend/conversions for Overview's trend charts. Rows are
+// { segments: { date }, metrics: { costMicros, clicks, conversions, conversionsValue } }.
+export function useGoogleDailyInsights() {
+  const { clientId, dateRange } = useFilterStore()
+  const { clients } = useClientStore()
+  const connected = clients.find((c) => c.id === clientId)?.google?.connected ?? false
+  const [data, setData] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!connected || !clientId) { setData([]); return }
+    const cacheKey = `google:daily:${clientId}:${dateRange}`
+    const cached = getCached(cacheKey)
+    if (cached) { setData(cached); return }
+
+    const ac = new AbortController()
+    setLoading(true)
+    setError(null)
+    googleFetch(`/api/google/daily-insights?clientId=${clientId}&dateRange=${dateRange}`, ac.signal)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.error) throw new Error(json.error)
+        setData(json.data ?? [])
+        setCached(cacheKey, json.data ?? [])
+      })
+      .catch((err) => { if (err.name !== 'AbortError') setError(err.message) })
+      .finally(() => setLoading(false))
+    return () => ac.abort()
+  }, [connected, clientId, dateRange])
+
+  return { data, loading, error }
 }

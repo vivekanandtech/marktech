@@ -22,6 +22,11 @@ function baseInput(overrides: Partial<Parameters<typeof derivePeriodMetrics>[0]>
     newCustomerCount: 0,
     newCustomerDataAvailable: false,
     nCACSourceApproximate: false,
+    metaImpressions: 0,
+    metaClicks: 0,
+    googleImpressions: 0,
+    googleClicks: 0,
+    googleSessions: 0,
     ...overrides,
   }
 }
@@ -165,5 +170,47 @@ describe('derivePeriodMetrics — conversion rate', () => {
     }))
     expect(result.conversionRate).toBe(0)
     expect(Number.isFinite(result.conversionRate)).toBe(true)
+  })
+})
+
+describe('derivePeriodMetrics — per-channel delivery metrics (Overview channel switch)', () => {
+  it('computes CTR and CPM per channel and blended from raw clicks/impressions/spend', () => {
+    const result = derivePeriodMetrics(baseInput({
+      metaSpend: 10_000, metaImpressions: 200_000, metaClicks: 2_000,
+      googleSpend: 5_000, googleImpressions: 50_000, googleClicks: 1_500,
+    }))
+    expect(result.metaCtr).toBeCloseTo(1)        // 2000/200000
+    expect(result.metaCpm).toBeCloseTo(50)       // 10000/200000*1000
+    expect(result.googleCtr).toBeCloseTo(3)      // 1500/50000
+    expect(result.googleCpm).toBeCloseTo(100)
+    expect(result.blendedCtr).toBeCloseTo(1.4)   // 3500/250000
+    expect(result.blendedCpm).toBeCloseTo(60)    // 15000/250000*1000
+  })
+
+  it('CTR/CPM are 0, never NaN, when a channel has no impressions', () => {
+    const result = derivePeriodMetrics(baseInput({ googleSpend: 500 }))
+    expect(result.googleCtr).toBe(0)
+    expect(result.googleCpm).toBe(0)
+  })
+
+  it('attributed CPR per channel and blended use only that channel’s Shopify-attributed orders', () => {
+    const result = derivePeriodMetrics(baseInput({
+      metaSpend: 9_000, googleSpend: 3_000,
+      channelTotals: { ...emptyChannels, meta: { orders: 9, netSales: 0 }, google: { orders: 3, netSales: 0 }, direct: { orders: 50, netSales: 0 } },
+    }))
+    expect(result.attributedCPR).toBeCloseTo(1_000)
+    expect(result.googleAttributedCPR).toBeCloseTo(1_000)
+    expect(result.blendedAttributedCPR).toBeCloseTo(1_000) // 12000 / 12 paid-attributed orders, direct excluded
+  })
+
+  it('blendedPlatformRoas is combined platform-claimed revenue over combined spend', () => {
+    const result = derivePeriodMetrics(baseInput({
+      metaSpend: 100, metaReportedRevenue: 400, googleSpend: 100, googleReportedRevenue: 200,
+    }))
+    expect(result.blendedPlatformRoas).toBeCloseTo(3)
+  })
+
+  it('blendedSessions sums Meta and Google paid sessions', () => {
+    expect(derivePeriodMetrics(baseInput({ metaSessions: 70, googleSessions: 30 })).blendedSessions).toBe(100)
   })
 })

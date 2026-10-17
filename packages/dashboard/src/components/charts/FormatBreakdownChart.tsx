@@ -61,7 +61,7 @@ export function FormatBreakdownChart({ data }: FormatBreakdownChartProps) {
           wrapperStyle={{ fontSize: '11px' }}
           formatter={(v, entry: any) => (
             <span style={{ color: c.muted }}>
-              {v} <span style={{ color: COLORS[entry.payload?.cx ? 0 : 0] }}>{formatRoas(entry.payload.roas)}</span>
+              {v} · {formatCurrency(entry.payload.spend)} · <span className="font-semibold">{formatRoas(entry.payload.roas)}</span>
             </span>
           )}
         />

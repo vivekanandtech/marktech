@@ -10,7 +10,7 @@ import { getCreatives } from '@/lib/mock-data'
 import { transformInsightMetrics, safeFloat, classifyCreativeFormat, CreativeFormat } from '@/lib/meta-transform'
 import { maxActionCount, maxActionValue, PURCHASE_ACTION_TYPES } from '@/lib/meta-actions'
 import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
-import { useInsightsStore } from '@/store/insightsStore'
+import { useActionablesStore, actionableTitle } from '@/store/actionablesStore'
 
 type SortKey = 'roas' | 'spend' | 'ctr' | 'trend'
 type FormatFilter = 'all' | CreativeFormat
@@ -163,7 +163,8 @@ function ConnectedView() {
   const [formatFilter, setFormatFilter] = useState<FormatFilter>('all')
 
   const { data: rawAds, loading, error } = useMetaCreatives()
-  const accountInsights = useInsightsStore((s) => s.insights.filter((i) => i.entityType === 'account'))
+  const actionablesPayload = useActionablesStore((s) => s.payload)
+  const creativeActions = (actionablesPayload?.items ?? []).filter((i) => i.category === 'creative' && i.status === 'new').slice(0, 5)
 
   const allCreatives = rawAds.map(transformRawAd)
   const creatives = allCreatives
@@ -228,15 +229,14 @@ function ConnectedView() {
 
       {!loading && rawAds.length > 0 && <FormatRollup rawAds={rawAds} />}
 
-      {accountInsights.length > 0 && (
+      {creativeActions.length > 0 && (
         <div className="space-y-2">
-          {accountInsights.map((insight, i) => (
-            <div key={i} className="flex items-start gap-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
+          {creativeActions.map((a) => (
+            <div key={a.id} className="flex items-start gap-3 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
               <Lightbulb size={16} className="text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
               <div>
-                <p className="text-xs font-semibold t1">{insight.title}</p>
-                <p className="text-xs t2 mt-0.5">{insight.message}</p>
-                <p className="text-xs t3 mt-1 italic">{insight.recommendation}</p>
+                <p className="text-xs font-semibold t1">{actionableTitle(a)}</p>
+                <p className="text-xs t2 mt-0.5">{a.detail}</p>
               </div>
             </div>
           ))}

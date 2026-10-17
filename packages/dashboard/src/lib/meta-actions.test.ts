@@ -11,6 +11,23 @@ describe('maxActionCount / maxActionValue', () => {
     expect(maxActionCount(ins, PURCHASE_ACTION_TYPES)).toBe(2)
   })
 
+  it('takes the max across overlapping alias action_types, never the sum (real Meta payload shape)', () => {
+    const ins = {
+      actions: [
+        { action_type: 'purchase', value: '177' },
+        { action_type: 'omni_purchase', value: '177' },
+        { action_type: 'offsite_conversion.fb_pixel_purchase', value: '177' },
+      ],
+      action_values: [
+        { action_type: 'purchase', value: '3258070.66' },
+        { action_type: 'omni_purchase', value: '3258070.66' },
+        { action_type: 'offsite_conversion.fb_pixel_purchase', value: '3258070.66' },
+      ],
+    }
+    expect(maxActionCount(ins, PURCHASE_ACTION_TYPES)).toBe(177)
+    expect(maxActionValue(ins, PURCHASE_ACTION_TYPES)).toBeCloseTo(3258070.66)
+  })
+
   it('returns 0 for missing/malformed input rather than throwing', () => {
     expect(maxActionCount(undefined, PURCHASE_ACTION_TYPES)).toBe(0)
     expect(maxActionCount({ actions: null }, PURCHASE_ACTION_TYPES)).toBe(0)

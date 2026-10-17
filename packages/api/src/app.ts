@@ -10,7 +10,7 @@ import { authRoutes } from './routes/auth'
 import { metaAuthRoutes, metaDataRoutes } from './routes/meta-auth'
 import { shopifyAuthRoutes, shopifyDataRoutes } from './routes/shopify'
 import { googleAuthRoutes, googleDataRoutes } from './routes/google-auth'
-import { insightsRoutes } from './routes/insights'
+import { actionablesRoutes } from './routes/actionables'
 import { metricsRoutes } from './routes/metrics'
 import { clientsRoutes } from './routes/clients'
 import { productsRoutes } from './routes/products'
@@ -81,7 +81,7 @@ export function buildApp() {
   app.register(metaDataRoutes, { prefix: '/api/meta' })
   app.register(shopifyDataRoutes, { prefix: '/api/shopify' })
   app.register(googleDataRoutes, { prefix: '/api/google' })
-  app.register(insightsRoutes, { prefix: '/api/insights' })
+  app.register(actionablesRoutes, { prefix: '/api/actionables' })
   app.register(metricsRoutes, { prefix: '/api/metrics' })
   app.register(clientsRoutes, { prefix: '/api/clients' })
   app.register(productsRoutes, { prefix: '/api/products' })

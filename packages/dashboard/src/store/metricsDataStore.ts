@@ -30,7 +30,26 @@ export interface PeriodMetrics {
   totalSessions: number
   totalOrders: number
   conversionRate: number
+  metaImpressions: number
+  metaClicks: number
+  metaCtr: number
+  metaCpm: number
+  googleImpressions: number
+  googleClicks: number
+  googleCtr: number
+  googleCpm: number
+  blendedImpressions: number
+  blendedClicks: number
+  blendedCtr: number
+  blendedCpm: number
+  googleSessions: number
+  blendedSessions: number
+  googleAttributedCPR: number
+  blendedAttributedCPR: number
+  blendedPlatformRoas: number
 }
+
+export type PlatformStatus = 'live' | 'sync_error' | 'not_connected'
 
 export interface OverviewMetricsResponse {
   current: PeriodMetrics
@@ -42,6 +61,16 @@ export interface OverviewMetricsResponse {
   // Meta's usage throttle) — distinguishes "temporarily unavailable" from a
   // real zero, which current.metaRoas/googleRoas can't do on its own.
   platformErrors: { meta: string | null; google: string | null }
+  // 'sync_error' = a saved connection that no longer works (e.g. revoked
+  // Google token) — not transient, so it isn't auto-retried.
+  platformStatus?: { meta: PlatformStatus; google: PlatformStatus }
+}
+
+// A live API hiccup on a working connection (worth retrying soon), as opposed
+// to a dead connection that only a reconnect will fix.
+export function hasTransientPlatformError(d: OverviewMetricsResponse | null | undefined): boolean {
+  if (!d) return false
+  return !!((d.platformErrors?.meta && d.connected.meta) || (d.platformErrors?.google && d.connected.google))
 }
 
 export interface ReconciliationDay {
@@ -93,7 +122,7 @@ export const useMetricsDataStore = create<MetricsDataStore>((set, get) => ({
     // a platform-specific failure (e.g. Meta's usage throttle) — treat that
     // as not-fresh too, so the next visit actually retries instead of
     // sitting on the same known-bad numbers for the full 5-minute window.
-    const hasPlatformError = !!(entry?.data?.platformErrors?.meta || entry?.data?.platformErrors?.google)
+    const hasPlatformError = hasTransientPlatformError(entry?.data)
     return !!entry && !entry.loading && !entry.error && !hasPlatformError &&
       entry.fetchedAt > 0 && Date.now() - entry.fetchedAt < STALE_MS
   },

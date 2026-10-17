@@ -8,6 +8,7 @@ import { useThemeStore } from '@/store/themeStore'
 interface RoasChartProps {
   data: Array<{ date: string; roas: number; blendedRoas?: number; attributedRoas?: number }>
   target?: number
+  lineLabel?: string
 }
 
 function useChartColors() {
@@ -38,7 +39,7 @@ function CustomTooltip({ active, payload, label, colors }: any) {
   )
 }
 
-export function RoasChart({ data, target = 4.5 }: RoasChartProps) {
+export function RoasChart({ data, target = 4.5, lineLabel = 'Meta ROAS' }: RoasChartProps) {
   const c = useChartColors()
   // Normalise: accept either `roas` (live) or `blendedRoas` (mock-data compat)
   const normalised = data.map((d) => ({ ...d, roas: d.roas ?? d.blendedRoas ?? 0 }))
@@ -51,7 +52,7 @@ export function RoasChart({ data, target = 4.5 }: RoasChartProps) {
         <Tooltip content={<CustomTooltip colors={c} />} />
         <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} formatter={(v) => <span style={{ color: c.muted }}>{v}</span>} />
         <ReferenceLine y={target} stroke="#f59e0b" strokeDasharray="4 4" strokeWidth={1} label={{ value: `Target ${target}x`, fill: '#f59e0b', fontSize: 10, position: 'insideTopRight' }} />
-        <Line name="Meta ROAS" type="monotone" dataKey="roas" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#6366f1' }} />
+        <Line name={lineLabel} type="monotone" dataKey="roas" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#6366f1' }} />
       </LineChart>
     </ResponsiveContainer>
   )

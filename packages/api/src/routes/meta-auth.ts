@@ -2,8 +2,8 @@ import { FastifyInstance } from 'fastify'
 import {
   getOAuthUrl, exchangeCodeForToken, extendToLongLivedToken,
   getMetaUserId, getAdAccounts, tokenStore, verifyToken,
-  getCampaignInsights, getCampaignInsightsForWindow, getCampaigns, getAccountInsights, getCampaignDetail, getAdSetAdsDetail, getTopAds, getDailyInsights,
-  dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbUpdateAdAccounts, dbGetAllSessions, dbDeleteToken,
+  getCampaignInsights, getCampaignInsightsForWindow, getCampaigns, getAccountInsights, getAccountInsightsForWindow, getCampaignDetail, getAdSetAdsDetail, getTopAds, getDailyInsights, getAdLevelInsights,
+  dbSaveToken, dbGetToken, dbUpdateSelectedAccount, dbUpdateAdAccounts, dbGetAllSessions, dbDeleteToken, dbUpdateTokenExpiry,
 } from '../services/meta'
 import { previousWindow } from '../lib/dateWindows'
 import { assertClientAccess, AuthUser } from '../lib/auth-guard'
@@ -121,10 +121,16 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
     if (!stored) return { connected: false }
 
-    const valid = await verifyToken(stored.accessToken)
+    const { valid, expiresAt } = await verifyToken(stored.accessToken)
     if (!valid) {
       tokenStore.delete(clientId)
       return { connected: false, reason: 'token_expired' }
+    }
+    if (expiresAt && expiresAt !== stored.expiresAt) {
+      stored = { ...stored, expiresAt }
+      dbUpdateTokenExpiry(clientId, expiresAt).catch((err) =>
+        app.log.error({ err: err.message, clientId }, 'Failed to sync Meta token expiry')
+      )
     }
 
     let dbRow: Awaited<ReturnType<typeof dbGetToken>> = null
@@ -215,6 +221,16 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 
 // ─── Meta data routes (stateless — token passed from client) ─────────────────
 
+// Meta's development-tier throttle surfaces as "User request limit reached" —
+// translate it into something a marketer can act on, with the right status.
+function metaFailure(err: any, fallback: string): { status: number; error: string } {
+  const msg: string = err?.message ?? ''
+  if (/request limit|too many calls|rate limit/i.test(msg)) {
+    return { status: 429, error: 'Meta is rate-limiting this ad account right now — try again in a minute.' }
+  }
+  return { status: 500, error: msg || fallback }
+}
+
 async function resolveToken(clientId: string, headerToken?: string): Promise<string | null> {
   // 1. Header token from client localStorage — fastest, no DB round-trip
   if (headerToken) return headerToken
@@ -275,11 +291,12 @@ export async function metaDataRoutes(app: FastifyInstance) {
       // totals in parallel. Ad sets/ads are loaded lazily per campaign on expand.
       // Previous-period insights are fetched alongside so the frontend can derive
       // a per-metric trend badge without a second round trip.
-      const [campaigns, campaignInsights, previousCampaignInsights, accountInsights] = await Promise.all([
+      const [campaigns, campaignInsights, previousCampaignInsights, accountInsights, previousAccountInsights] = await Promise.all([
         getCampaigns(adAccountId, token),
         safe('campaignInsights', () => getCampaignInsights(adAccountId, token, dateRange, 'campaign')),
         safe('previousCampaignInsights', () => getCampaignInsightsForWindow(adAccountId, token, previousWindow(dateRange), 'campaign')),
         safe('accountInsights',  () => getAccountInsights(adAccountId, token, dateRange)),
+        safe('previousAccountInsights', () => getAccountInsightsForWindow(adAccountId, token, previousWindow(dateRange))),
       ])
 
       const insightMap = new Map((campaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
@@ -293,6 +310,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
           adsets: [],
         })),
         accountInsights: accountInsights ?? null,
+        previousAccountInsights: previousAccountInsights ?? null,
         source: 'meta_api',
       }
       await setCachedResponse(cacheKey, response)
@@ -314,7 +332,8 @@ export async function metaDataRoutes(app: FastifyInstance) {
         return { adSets, source: 'meta_api' }
       } catch (err: any) {
         app.log.error({ err: err.message, campaignId }, 'getCampaignDetail failed')
-        return reply.code(500).send({ error: err.message ?? 'Failed to load campaign detail' })
+        const f = metaFailure(err, 'Failed to load campaign detail')
+        return reply.code(f.status).send({ error: f.error })
       }
     }
   )
@@ -334,7 +353,27 @@ export async function metaDataRoutes(app: FastifyInstance) {
         return { ads, source: 'meta_api' }
       } catch (err: any) {
         app.log.error({ err: err.message, adSetId }, 'getAdSetAdsDetail failed')
-        return reply.code(500).send({ error: err.message ?? 'Failed to load ad set ads' })
+        const f = metaFailure(err, 'Failed to load ad set ads')
+        return reply.code(f.status).send({ error: f.error })
+      }
+    }
+  )
+
+  // Every ad with spend in the window — feeds the Scale/Optimise/Watch Excel export.
+  app.get<{ Querystring: { clientId?: string; adAccountId: string; dateRange?: string } }>(
+    '/ads-export',
+    async (request, reply) => {
+      const { clientId = 'default', adAccountId, dateRange = '30D' } = request.query
+      assertClientAccess(request, clientId)
+      const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
+      if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      try {
+        const rows = await getAdLevelInsights(adAccountId, token, dateRange)
+        return { data: rows, source: 'meta_api' }
+      } catch (err: any) {
+        app.log.error({ err: err.message, adAccountId }, 'getAdLevelInsights failed')
+        const f = metaFailure(err, 'Failed to export ads')
+        return reply.code(f.status).send({ error: f.error })
       }
     }
   )

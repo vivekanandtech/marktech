@@ -1,12 +1,11 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, TrendingUp, Target, Image, Bell, Settings,
-  Zap, ShoppingBag, Sparkles, ArrowLeft, Package,
+  Zap, ShoppingBag, ListChecks, ArrowLeft, Package,
 } from 'lucide-react'
 import clsx from 'clsx'
-import { useFilterStore } from '@/store/filterStore'
 import { useAuthStore } from '@/store/authStore'
-import { getAlerts } from '@/lib/mock-data'
+import { useActionablesStore, openAlertCount } from '@/store/actionablesStore'
 
 interface NavItem { label: string; to: string; icon: React.ReactNode }
 interface NavGroup { heading?: string; items: NavItem[] }
@@ -16,7 +15,7 @@ const NAV: NavGroup[] = [
     items: [
       { label: 'Overview', to: '/overview', icon: <LayoutDashboard size={16} /> },
       { label: 'Products', to: '/products', icon: <Package size={16} /> },
-      { label: 'Insights', to: '/insights', icon: <Sparkles size={16} /> },
+      { label: 'Actionables', to: '/actionables', icon: <ListChecks size={16} /> },
     ],
   },
   {
@@ -37,9 +36,8 @@ const NAV: NavGroup[] = [
 ]
 
 export function Sidebar() {
-  const clientId = useFilterStore((s) => s.clientId)
   const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
-  const unreadCount = getAlerts(clientId).filter((a) => !a.isRead).length
+  const unreadCount = useActionablesStore((s) => openAlertCount(s.payload))
 
   return (
     <aside className="w-56 shrink-0 flex flex-col h-screen sticky top-0 bg-surface border-r border-theme transition-colors">

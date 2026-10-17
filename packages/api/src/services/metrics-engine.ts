@@ -10,7 +10,7 @@ import {
   getGoogleAccountInsightsForWindow, getGoogleDailyInsightsForWindow,
 } from './google'
 import {
-  dbGetShopifyToken, getOrdersByChannel, getMetaSessions, getTotalSessions, getSalesByCountry,
+  dbGetShopifyToken, getOrdersByChannel, getPaidChannelSessions, getTotalSessions, getSalesByCountry,
   getNewCustomerCount, getNetRevenueByDay, AttributionChannel, ChannelTotals,
 } from './shopify'
 
@@ -52,6 +52,27 @@ export interface PeriodMetrics {
   totalOrders: number
   conversionRate: number
   sourceConfidence: 'exact' | 'approximate'
+  // Per-channel delivery + truth metrics so Overview's Meta/Google/Blended
+  // switch can drive every card, not just the ROAS hero. CTR/CPM are derived
+  // from raw clicks/impressions/spend on every channel so the three views are
+  // calculated identically.
+  metaImpressions: number
+  metaClicks: number
+  metaCtr: number
+  metaCpm: number
+  googleImpressions: number
+  googleClicks: number
+  googleCtr: number
+  googleCpm: number
+  blendedImpressions: number
+  blendedClicks: number
+  blendedCtr: number
+  blendedCpm: number
+  googleSessions: number
+  blendedSessions: number
+  googleAttributedCPR: number
+  blendedAttributedCPR: number
+  blendedPlatformRoas: number
 }
 
 export interface OverviewMetricsResponse {
@@ -66,7 +87,13 @@ export interface OverviewMetricsResponse {
   // silent, misleading 0. Previously this failure was swallowed into a plain
   // 0 with no way to tell it apart from a real zero-spend period.
   platformErrors: { meta: string | null; google: string | null }
+  // 'sync_error' = a token is saved but no longer works (revoked/expired),
+  // which `connected` alone can't express — it collapses that into "not
+  // connected", hiding that the client *had* Google and it broke.
+  platformStatus: { meta: PlatformStatus; google: PlatformStatus }
 }
+
+export type PlatformStatus = 'live' | 'sync_error' | 'not_connected'
 
 // Pure calculation core — no I/O, takes already-fetched raw data and produces
 // the final metrics. Kept separate from computePeriodMetrics below so the math
@@ -83,11 +110,19 @@ export function derivePeriodMetrics(input: {
   newCustomerCount: number
   newCustomerDataAvailable: boolean
   nCACSourceApproximate: boolean
+  metaImpressions: number
+  metaClicks: number
+  googleImpressions: number
+  googleClicks: number
+  googleSessions: number
 }): PeriodMetrics {
   const {
     metaSpend, metaReportedRevenue, googleSpend, googleReportedRevenue,
     channelTotals, metaSessions, totalSessions, newCustomerCount, newCustomerDataAvailable, nCACSourceApproximate,
+    metaImpressions, metaClicks, googleImpressions, googleClicks, googleSessions,
   } = input
+  const ctrOf = (clicks: number, impressions: number) => (impressions > 0 ? (clicks / impressions) * 100 : 0)
+  const cpmOf = (spend: number, impressions: number) => (impressions > 0 ? (spend / impressions) * 1000 : 0)
 
   const shopifyNetRevenue = Object.values(channelTotals).reduce((sum, b) => sum + b.netSales, 0)
   const totalOrders = Object.values(channelTotals).reduce((sum, b) => sum + b.orders, 0)
@@ -110,7 +145,19 @@ export function derivePeriodMetrics(input: {
   const metaRoas = metaSpend > 0 ? metaReportedRevenue / metaSpend : 0
   const googleRoas = googleSpend > 0 ? googleReportedRevenue / googleSpend : 0
 
+  const blendedImpressions = metaImpressions + googleImpressions
+  const blendedClicks = metaClicks + googleClicks
+  const paidAttributedOrders = metaAttributedOrders + googleAttributedOrders
+
   return {
+    metaImpressions, metaClicks, metaCtr: ctrOf(metaClicks, metaImpressions), metaCpm: cpmOf(metaSpend, metaImpressions),
+    googleImpressions, googleClicks, googleCtr: ctrOf(googleClicks, googleImpressions), googleCpm: cpmOf(googleSpend, googleImpressions),
+    blendedImpressions, blendedClicks, blendedCtr: ctrOf(blendedClicks, blendedImpressions), blendedCpm: cpmOf(blendedSpend, blendedImpressions),
+    googleSessions,
+    blendedSessions: metaSessions + googleSessions,
+    googleAttributedCPR: googleAttributedOrders > 0 ? googleSpend / googleAttributedOrders : 0,
+    blendedAttributedCPR: paidAttributedOrders > 0 ? blendedSpend / paidAttributedOrders : 0,
+    blendedPlatformRoas: blendedSpend > 0 ? platformClaimedRevenue / blendedSpend : 0,
     metaSpend, googleSpend, blendedSpend,
     metaReportedRevenue, googleReportedRevenue, shopifyNetRevenue,
     metaSessions, metaAttributedOrders, googleAttributedOrders,
@@ -140,11 +187,11 @@ async function computePeriodMetrics(
 ): Promise<{ metrics: PeriodMetrics; errors: { meta: string | null; google: string | null } }> {
   let metaError: string | null = null
   let googleError: string | null = null
-  const [metaIns, googleIns, ordersByChannel, metaSessions, totalSessions] = await Promise.all([
+  const [metaIns, googleIns, ordersByChannel, paidSessions, totalSessions] = await Promise.all([
     meta ? getMetaInsightsForWindow(meta.adAccountId, meta.accessToken, window).catch((err) => { metaError = err.message; return null }) : null,
     google ? getGoogleAccountInsightsForWindow(google.customerId, google.accessToken, window).catch((err) => { googleError = err.message; return null }) : null,
     shopify ? getOrdersByChannel(shopify.shopDomain, shopify.accessToken, window).catch(() => null) : null,
-    shopify ? getMetaSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => 0) : 0,
+    shopify ? getPaidChannelSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => ({ meta: 0, google: 0 })) : { meta: 0, google: 0 },
     shopify ? getTotalSessions(shopify.shopDomain, shopify.accessToken, window).catch(() => 0) : 0,
   ])
 
@@ -180,8 +227,12 @@ async function computePeriodMetrics(
     googleSpend: googleIns ? (googleIns.costMicros ?? 0) / 1_000_000 : 0,
     googleReportedRevenue: googleIns ? (googleIns.conversionsValue ?? 0) : 0,
     channelTotals: ordersByChannel ?? EMPTY_CHANNEL_TOTALS,
-    metaSessions, totalSessions,
+    metaSessions: paidSessions.meta, googleSessions: paidSessions.google, totalSessions,
     newCustomerCount, newCustomerDataAvailable, nCACSourceApproximate,
+    metaImpressions: metaIns ? Number(metaIns.impressions) || 0 : 0,
+    metaClicks: metaIns ? Number(metaIns.clicks) || 0 : 0,
+    googleImpressions: googleIns ? Number(googleIns.impressions) || 0 : 0,
+    googleClicks: googleIns ? Number(googleIns.clicks) || 0 : 0,
   })
   return { metrics, errors: { meta: metaError, google: googleError } }
 }
@@ -213,7 +264,9 @@ async function setCached(key: string, payload: OverviewMetricsResponse): Promise
 export async function computeOverviewMetrics(
   clientId: string, dateRange: string, country?: string, bypassCache = false
 ): Promise<OverviewMetricsResponse> {
-  const cacheKey = `overview:${clientId}:${dateRange}:${country ?? 'all'}`
+  // Bump the version whenever the response shape changes so a cached payload
+  // from the old shape is never served to a frontend expecting the new one.
+  const cacheKey = `overview:v2:${clientId}:${dateRange}:${country ?? 'all'}`
   if (!bypassCache) {
     const cached = await getCached(cacheKey)
     if (cached) return cached
@@ -271,10 +324,21 @@ export async function computeOverviewMetrics(
     }
   }
 
+  const statusOf = (hasToken: boolean, usable: boolean, error: string | null): PlatformStatus =>
+    !hasToken ? 'not_connected' : !usable || error ? 'sync_error' : 'live'
+
   const response: OverviewMetricsResponse = {
     current, previous, deltas, countryBreakdown,
     connected: { meta: !!meta, google: !!google, shopify: !!shopify },
-    platformErrors: currentResult.errors,
+    platformErrors: {
+      meta: currentResult.errors.meta,
+      google: currentResult.errors.google
+        ?? (googleToken && !google ? 'Google Ads sync interrupted — the saved connection no longer works. Reconnect Google Ads to resume.' : null),
+    },
+    platformStatus: {
+      meta: statusOf(!!metaToken?.selectedAdAccountId, !!meta, currentResult.errors.meta),
+      google: statusOf(!!googleToken, !!google, currentResult.errors.google),
+    },
   }
 
   // Don't cache a response built from a live platform-call failure — e.g.

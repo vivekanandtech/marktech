@@ -3,7 +3,7 @@ import { ChevronUp, ChevronDown, ChevronsUpDown, Columns3 } from 'lucide-react'
 import clsx from 'clsx'
 import { CampaignRow } from './CampaignRow'
 
-export type SortKey = 'spend' | 'roas' | 'ctr' | 'cpa' | 'impressions' | 'clicks'
+export type SortKey = 'spend' | 'results' | 'roas' | 'ctr' | 'costPerResult' | 'cpa' | 'impressions' | 'clicks'
 export type SortDir = 'asc' | 'desc'
 
 interface Campaign {
@@ -27,10 +27,11 @@ interface ColumnDef { label: string; key?: SortKey; className: string }
 
 const BASE_COLUMNS: ColumnDef[] = [
   { label: 'Campaign / Ad Set / Ad', className: 'text-left pl-4' },
-  { label: 'Spend',       key: 'spend',       className: 'text-right' },
-  { label: 'ROAS',        key: 'roas',        className: 'text-right' },
-  { label: 'CTR',         key: 'ctr',         className: 'text-right' },
-  { label: 'CPA',         key: 'cpa',         className: 'text-right' },
+  { label: 'Spend',         key: 'spend',         className: 'text-right' },
+  { label: 'Results',       key: 'results',       className: 'text-right' },
+  { label: 'ROAS',          key: 'roas',          className: 'text-right' },
+  { label: 'CTR',           key: 'ctr',           className: 'text-right' },
+  { label: 'Cost / Result', key: 'costPerResult', className: 'text-right' },
 ]
 
 // Meta-only funnel stages, sitting unused in data already fetched at every
@@ -82,7 +83,7 @@ export function CampaignTable({
         </div>
       )}
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[740px]">
+      <table className="w-full min-w-[860px]">
         <thead>
           <tr className="border-b border-theme">
             {columns.map((col) => {

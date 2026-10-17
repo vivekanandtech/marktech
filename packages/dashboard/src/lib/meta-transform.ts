@@ -21,6 +21,8 @@ export interface MetricTrend {
   roasPct: number | null
   ctrPct: number | null
   cpaPct: number | null
+  resultsPct?: number | null
+  cprPct?: number | null
 }
 
 function pctChange(current: number, previous: number): number {
@@ -32,18 +34,22 @@ export function computeTrend(currentIns: any, previousIns: any | null | undefine
   if (!previousIns) return null
   const cur = transformInsightMetrics(currentIns)
   const prev = transformInsightMetrics(previousIns)
+  // Didn't deliver last period — every metric would read a meaningless +100%.
+  if (prev.spend <= 0) return null
   return {
     spendPct: pctChange(cur.spend, prev.spend),
     roasPct: pctChange(cur.roas, prev.roas),
     ctrPct: pctChange(cur.ctr, prev.ctr),
     cpaPct: pctChange(cur.cpa, prev.cpa),
+    resultsPct: pctChange(cur.results, prev.results),
+    cprPct: pctChange(cur.costPerResult, prev.costPerResult),
   }
 }
 
-// Higher is better for roas/ctr; lower is better for cpa; spend has no
+// Higher is better for roas/ctr/results; lower is better for cpa; spend has no
 // inherent "good" direction (scaling a winner up is a deliberate choice),
 // so it's never shown as a regression.
-export function isMetricImproving(metric: 'spend' | 'roas' | 'ctr' | 'cpa', pct: number): boolean {
+export function isMetricImproving(metric: 'spend' | 'roas' | 'ctr' | 'cpa' | 'results', pct: number): boolean {
   if (metric === 'cpa') return pct <= 0
   if (metric === 'spend') return true
   return pct >= 0
@@ -75,6 +81,39 @@ export function classifyCreativeFormat(creative: any): CreativeFormat {
   return 'image'
 }
 
+// Ads Manager's Results column labels, keyed by the `indicator` Meta returns
+// alongside results/cost_per_result.
+const RESULT_LABELS: Record<string, string> = {
+  'actions:offsite_conversion.fb_pixel_purchase': 'Purchases',
+  'actions:omni_purchase': 'Purchases',
+  'actions:purchase': 'Purchases',
+  'actions:offsite_conversion.fb_pixel_add_to_cart': 'Adds to cart',
+  'actions:offsite_conversion.fb_pixel_initiate_checkout': 'Checkouts',
+  'actions:offsite_conversion.fb_pixel_lead': 'Leads',
+  'actions:onsite_conversion.lead_grouped': 'Leads',
+  'actions:lead': 'Leads',
+  'actions:link_click': 'Link clicks',
+  'actions:landing_page_view': 'Landing page views',
+  'actions:post_engagement': 'Engagements',
+  'actions:onsite_conversion.messaging_conversation_started_7d': 'Conversations',
+  'video_thruplay_watched_actions': 'ThruPlays',
+  'actions:video_view': 'Video views',
+  'actions:mobile_app_install': 'App installs',
+  reach: 'Reach',
+  impressions: 'Impressions',
+}
+
+function readResult(arr: any): { indicator: string | null; value: number } {
+  const first = Array.isArray(arr) ? arr[0] : null
+  if (!first) return { indicator: null, value: 0 }
+  return { indicator: first.indicator ?? null, value: safeFloat(first.values?.[0]?.value) }
+}
+
+export function resultLabelFor(indicator: string | null): string {
+  if (!indicator) return 'Results'
+  return RESULT_LABELS[indicator] ?? indicator.replace(/^actions:/, '').replace(/^offsite_conversion\.fb_pixel_/, '').replace(/[._]/g, ' ')
+}
+
 export function transformInsightMetrics(ins: any) {
   const spend       = safeFloat(ins?.spend)
   const impressions = safeInt(ins?.impressions)
@@ -94,7 +133,20 @@ export function transformInsightMetrics(ins: any) {
 
   const funnel = getFunnelCounts(ins)
 
-  return { spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc, conversions, funnel }
+  // Fall back to purchases when Meta returns no results field (older cached
+  // payloads, or rows with no optimization event) so the column is never blank
+  // for a sales campaign.
+  const r = readResult(ins?.results)
+  const resultIndicator = r.indicator ?? (conversions > 0 ? 'actions:offsite_conversion.fb_pixel_purchase' : null)
+  const results = r.indicator ? r.value : conversions
+  const cpr = readResult(ins?.cost_per_result).value
+  const costPerResult = cpr > 0 ? cpr : results > 0 ? spend / results : 0
+  const resultLabel = resultLabelFor(resultIndicator)
+
+  return {
+    spend, impressions, clicks, reach, frequency, roas, ctr, cpm, cpa, cpc, conversions, funnel,
+    results, resultLabel, costPerResult,
+  }
 }
 
 function summarizeTargeting(targeting: any): string {
@@ -111,7 +163,8 @@ function summarizeTargeting(targeting: any): string {
   return parts.join(' · ')
 }
 
-function deriveActionTag(roas: number): string {
+export type ActionTag = 'scale' | 'watch' | 'optimise'
+export function deriveActionTag(roas: number): ActionTag {
   return roas >= 4.5 ? 'scale' : roas >= 3 ? 'watch' : 'optimise'
 }
 

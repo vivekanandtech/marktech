@@ -26,7 +26,10 @@ function deriveGoogleMetrics(m: GoogleMetrics | null | undefined) {
   const cpc = microsToCurrency(m?.averageCpc)
   const roas = spend > 0 ? conversionsValue / spend : 0
   const cpa = conversions > 0 ? spend / conversions : 0
-  return { spend, impressions, clicks, conversions, roas, ctr, cpc, cpa, reach: 0, frequency: 0 }
+  return {
+    spend, impressions, clicks, conversions, roas, ctr, cpc, cpa, reach: 0, frequency: 0,
+    results: conversions, resultLabel: 'Conversions', costPerResult: cpa,
+  }
 }
 
 function pctChange(current: number, previous: number): number {
@@ -38,11 +41,14 @@ function computeGoogleTrend(current: GoogleMetrics | null | undefined, previous:
   if (!previous) return null
   const cur = deriveGoogleMetrics(current)
   const prev = deriveGoogleMetrics(previous)
+  if (prev.spend <= 0) return null
   return {
     spendPct: pctChange(cur.spend, prev.spend),
     roasPct: pctChange(cur.roas, prev.roas),
     ctrPct: pctChange(cur.ctr, prev.ctr),
     cpaPct: pctChange(cur.cpa, prev.cpa),
+    resultsPct: pctChange(cur.results, prev.results),
+    cprPct: pctChange(cur.costPerResult, prev.costPerResult),
   }
 }
 

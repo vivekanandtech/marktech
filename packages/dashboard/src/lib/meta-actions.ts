@@ -12,18 +12,21 @@ export const ADD_PAYMENT_INFO_ACTION_TYPES = ['add_payment_info', 'offsite_conve
 const safeFloat = (v: any) => { const n = parseFloat(v ?? '0'); return isFinite(n) ? n : 0 }
 const safeInt   = (v: any) => { const n = parseInt(v ?? '0', 10); return isFinite(n) ? n : 0 }
 
+// Meta reports one conversion under several overlapping alias action_types at
+// once (purchase / omni_purchase / offsite_conversion.fb_pixel_purchase, each
+// with the identical value) — take the max, never the sum, or counts inflate 3-4x.
 export function maxActionCount(ins: any, actionTypes: string[]): number {
   const actions = Array.isArray(ins?.actions) ? ins.actions : []
   return actions
     .filter((a: any) => actionTypes.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + safeInt(a.value), 0)
+    .reduce((max: number, a: any) => Math.max(max, safeInt(a.value)), 0)
 }
 
 export function maxActionValue(ins: any, actionTypes: string[]): number {
   const values = Array.isArray(ins?.action_values) ? ins.action_values : []
   return values
     .filter((a: any) => actionTypes.includes(a.action_type))
-    .reduce((sum: number, a: any) => sum + safeFloat(a.value), 0)
+    .reduce((max: number, a: any) => Math.max(max, safeFloat(a.value)), 0)
 }
 
 export interface MetaFunnelCounts {

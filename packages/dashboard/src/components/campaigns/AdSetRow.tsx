@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
-import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
-import { TrendBadge } from '@/components/ui/TrendBadge'
-import { FunnelHoverCard } from '@/components/ui/FunnelHoverCard'
 import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
 import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdRow } from './AdRow'
+import { MetricCells, METRIC_COLUMN_COUNT } from './MetricCells'
 import { adsetManagerUrl } from '@/lib/meta-links'
-import { MetricTrend, isMetricImproving, MetaFunnelCounts, transformMetaAd } from '@/lib/meta-transform'
+import { MetricTrend, MetaFunnelCounts, transformMetaAd } from '@/lib/meta-transform'
 import { useAdSetAds } from '@/hooks/useMetaData'
 
 interface AdSet {
@@ -16,6 +14,7 @@ interface AdSet {
   spend: number; roas: number; ctr: number; cpa: number; cpc: number
   impressions: number; clicks: number; conversions: number; frequency: number
   actionTag: string; trend: MetricTrend | null; ads: any[]; adCount?: number; funnel?: MetaFunnelCounts
+  results?: number; resultLabel?: string; costPerResult?: number
 }
 
 export function AdSetRow({
@@ -33,6 +32,7 @@ export function AdSetRow({
   const lazyAds = lazy.ads?.map(transformMetaAd).filter((a): a is NonNullable<typeof a> => a !== null) ?? null
   const displayAds = needsLazyFetch ? (lazyAds ?? []) : adSet.ads
   const adsLoading = needsLazyFetch && expanded && lazy.loading
+  const colSpan = METRIC_COLUMN_COUNT + (showFunnel ? 3 : 0)
 
   return (
     <>
@@ -65,56 +65,20 @@ export function AdSetRow({
           </div>
         </td>
 
-        <td className="px-3 py-2.5 text-right text-xs">
-          <p className="font-medium t2">{formatCurrency(adSet.spend)}</p>
-          {adSet.trend && <TrendBadge change={adSet.trend.spendPct ?? 0} improving={isMetricImproving('spend', adSet.trend.spendPct ?? 0)} size="sm" />}
-        </td>
-
-        <td className="px-3 py-2.5 text-right text-xs">
-          <FunnelHoverCard funnel={adSet.funnel}>
-            <p className={clsx('font-bold', adSet.roas <= 0 ? 't3' : adSet.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : adSet.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400')}>
-              {formatRoas(adSet.roas)}
-            </p>
-          </FunnelHoverCard>
-          {adSet.trend && <TrendBadge change={adSet.trend.roasPct ?? 0} improving={isMetricImproving('roas', adSet.trend.roasPct ?? 0)} size="sm" />}
-        </td>
-
-        <td className="px-3 py-2.5 text-right text-xs t3">
-          {formatPercent(adSet.ctr)}
-          {adSet.trend && <div><TrendBadge change={adSet.trend.ctrPct ?? 0} improving={isMetricImproving('ctr', adSet.trend.ctrPct ?? 0)} size="sm" /></div>}
-        </td>
-        <td className="px-3 py-2.5 text-right text-xs t3">
-          {formatCurrency(adSet.cpa)}
-          {adSet.trend && <div><TrendBadge change={adSet.trend.cpaPct ?? 0} improving={isMetricImproving('cpa', adSet.trend.cpaPct ?? 0)} size="sm" /></div>}
-        </td>
-        {showFunnel && (
-          isGoogle ? (
-            <>
-              <td className="px-3 py-2.5 text-right text-xs t3">–</td>
-              <td className="px-3 py-2.5 text-right text-xs t3">–</td>
-              <td className="px-3 py-2.5 text-right text-xs t3">–</td>
-            </>
-          ) : (
-            <>
-              <td className="px-3 py-2.5 text-right text-xs t3">{formatNumber(adSet.funnel?.addToCart ?? 0)}</td>
-              <td className="px-3 py-2.5 text-right text-xs t3">{formatNumber(adSet.funnel?.initiateCheckout ?? 0)}</td>
-              <td className="px-3 py-2.5 text-right text-xs t3">{formatNumber(adSet.funnel?.addPaymentInfo ?? 0)}</td>
-            </>
-          )
-        )}
+        <MetricCells m={adSet} level="adset" showFunnel={showFunnel} isGoogle={isGoogle} />
       </tr>
 
       {expanded && (
         adsLoading ? (
           <tr>
-            <td colSpan={showFunnel ? 8 : 5} className="py-2.5 pl-16 text-xs t3">
+            <td colSpan={colSpan} className="py-2.5 pl-16 text-xs t3">
               <Loader2 size={12} className="inline animate-spin mr-1.5" />
               Loading ads…
             </td>
           </tr>
         ) : needsLazyFetch && lazy.error ? (
           <tr>
-            <td colSpan={showFunnel ? 8 : 5} className="py-2.5 pl-16 text-xs text-red-500">
+            <td colSpan={colSpan} className="py-2.5 pl-16 text-xs text-red-500">
               Failed to load ads: {lazy.error}
             </td>
           </tr>

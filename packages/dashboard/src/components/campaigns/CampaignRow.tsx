@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import clsx from 'clsx'
-import { formatCurrency, formatRoas, formatPercent, formatNumber } from '@/lib/formatters'
-import { TrendBadge } from '@/components/ui/TrendBadge'
-import { FunnelHoverCard } from '@/components/ui/FunnelHoverCard'
+import { formatCurrency } from '@/lib/formatters'
 import { ActionTagBadge, StatusBadge } from '@/components/ui/Badge'
 import { MetaCtaButton } from '@/components/ui/MetaCtaButton'
 import { AdSetRow } from './AdSetRow'
+import { MetricCells, METRIC_COLUMN_COUNT } from './MetricCells'
 import { useCampaignDetail } from '@/hooks/useMetaData'
 import { useGoogleAdGroups } from '@/hooks/useGoogleData'
 import { useFilterStore } from '@/store/filterStore'
-import { transformMetaAdSet, MetricTrend, isMetricImproving, MetaFunnelCounts } from '@/lib/meta-transform'
+import { transformMetaAdSet, MetricTrend, MetaFunnelCounts } from '@/lib/meta-transform'
 import { transformGoogleAdGroup } from '@/lib/google-transform'
-import { useInsightsStore } from '@/store/insightsStore'
+import { Link } from 'react-router-dom'
+import { useActionablesStore, openActionablesFor, actionableTitle, severityTextClass } from '@/store/actionablesStore'
 import { campaignManagerUrl } from '@/lib/meta-links'
 
 interface Campaign {
@@ -20,13 +20,7 @@ interface Campaign {
   dailyBudget: number; spend: number; roas: number; ctr: number; cpa: number; cpc: number
   impressions: number; clicks: number; conversions: number; reach: number; frequency: number
   actionTag: string; trend: MetricTrend | null; adSets: any[]; funnel?: MetaFunnelCounts
-}
-
-const INSIGHT_TEXT_CLASS: Record<string, string> = {
-  critical: 'text-red-600 dark:text-red-400',
-  warning: 'text-amber-600 dark:text-amber-400',
-  opportunity: 'text-emerald-600 dark:text-emerald-400',
-  info: 'text-indigo-600 dark:text-indigo-400',
+  results?: number; resultLabel?: string; costPerResult?: number
 }
 
 export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { campaign: Campaign; adAccountId?: string | null; showFunnel?: boolean }) {
@@ -34,7 +28,8 @@ export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { cam
   const { dateRange } = useFilterStore()
   const isGoogle = campaign.platform === 'google'
 
-  const insight = useInsightsStore((s) => s.getForEntity('campaign', campaign.id))
+  const actionablesPayload = useActionablesStore((s) => s.payload)
+  const actions = isGoogle ? [] : openActionablesFor(actionablesPayload, { campaignId: campaign.id })
   const metaUrl = !isGoogle && adAccountId ? campaignManagerUrl(adAccountId, campaign.id) : null
 
   // Lazy-load ad sets only when the row is expanded — avoids fetching all
@@ -64,6 +59,7 @@ export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { cam
   // null-check); Google's starts at `adGroups: []` (same shape as "loaded but
   // empty"). Normalize both into one "still loading, nothing to show" check.
   const stillLoadingDetail = loadingDetail && displayAdSets.length === 0
+  const colSpan = METRIC_COLUMN_COUNT + (showFunnel ? 3 : 0)
 
   return (
     <>
@@ -102,74 +98,35 @@ export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { cam
                   {loadingDetail ? '…' : `${displayAdSets.length} ad sets`} · {formatCurrency(campaign.dailyBudget)}/day
                 </span>
               </div>
-              {insight && (
-                <p className={clsx('text-[10px] mt-1', INSIGHT_TEXT_CLASS[insight.severity])}>
-                  💡 {insight.message} {insight.recommendation}
-                </p>
+              {actions.length > 0 && (
+                <Link to="/actionables" onClick={(e) => e.stopPropagation()} className={clsx('block text-[10px] mt-1 hover:underline', severityTextClass(actions[0].severity))}>
+                  💡 {actionableTitle(actions[0])}{actions.length > 1 ? ` · +${actions.length - 1} more` : ''}
+                </Link>
               )}
             </div>
           </div>
         </td>
 
-        <td className="px-3 py-3 text-right">
-          <p className="text-sm font-semibold t1">{formatCurrency(campaign.spend)}</p>
-          {campaign.trend && <TrendBadge change={campaign.trend.spendPct ?? 0} improving={isMetricImproving('spend', campaign.trend.spendPct ?? 0)} />}
-        </td>
-
-        <td className="px-3 py-3 text-right">
-          <FunnelHoverCard funnel={campaign.funnel}>
-            <p className={clsx(
-              'text-sm font-bold',
-              campaign.roas <= 0 ? 't3' : campaign.roas >= 4.5 ? 'text-emerald-600 dark:text-emerald-400' : campaign.roas >= 3.5 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
-            )}>
-              {formatRoas(campaign.roas)}
-            </p>
-          </FunnelHoverCard>
-          {campaign.trend && <TrendBadge change={campaign.trend.roasPct ?? 0} improving={isMetricImproving('roas', campaign.trend.roasPct ?? 0)} />}
-        </td>
-
-        <td className="px-3 py-3 text-right text-sm t2">
-          {formatPercent(campaign.ctr)}
-          {campaign.trend && <div><TrendBadge change={campaign.trend.ctrPct ?? 0} improving={isMetricImproving('ctr', campaign.trend.ctrPct ?? 0)} /></div>}
-        </td>
-        <td className="px-3 py-3 text-right text-sm t2">
-          {formatCurrency(campaign.cpa)}
-          {campaign.trend && <div><TrendBadge change={campaign.trend.cpaPct ?? 0} improving={isMetricImproving('cpa', campaign.trend.cpaPct ?? 0)} /></div>}
-        </td>
-        {showFunnel && (
-          isGoogle ? (
-            <>
-              <td className="px-3 py-3 text-right text-sm t3">–</td>
-              <td className="px-3 py-3 text-right text-sm t3">–</td>
-              <td className="px-3 py-3 text-right text-sm t3">–</td>
-            </>
-          ) : (
-            <>
-              <td className="px-3 py-3 text-right text-sm t2">{formatNumber(campaign.funnel?.addToCart ?? 0)}</td>
-              <td className="px-3 py-3 text-right text-sm t2">{formatNumber(campaign.funnel?.initiateCheckout ?? 0)}</td>
-              <td className="px-3 py-3 text-right text-sm t2">{formatNumber(campaign.funnel?.addPaymentInfo ?? 0)}</td>
-            </>
-          )
-        )}
+        <MetricCells m={campaign} level="campaign" showFunnel={showFunnel} isGoogle={isGoogle} />
       </tr>
 
       {expanded && (
         stillLoadingDetail ? (
           <tr>
-            <td colSpan={showFunnel ? 8 : 5} className="py-3 pl-12 text-xs t3">
+            <td colSpan={colSpan} className="py-3 pl-12 text-xs t3">
               <Loader2 size={12} className="inline animate-spin mr-1.5" />
               Loading ad sets…
             </td>
           </tr>
         ) : detailError ? (
           <tr>
-            <td colSpan={showFunnel ? 8 : 5} className="py-3 pl-12 text-xs text-red-500">
+            <td colSpan={colSpan} className="py-3 pl-12 text-xs text-red-500">
               Failed to load: {detailError}
             </td>
           </tr>
         ) : displayAdSets.length === 0 ? (
           <tr>
-            <td colSpan={showFunnel ? 8 : 5} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
+            <td colSpan={colSpan} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
           </tr>
         ) : (
           displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={isGoogle ? null : adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} dateRange={dateRange} />)

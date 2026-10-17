@@ -55,8 +55,11 @@ export function useMetaCampaigns() {
     connected: false, accessToken: null, enabledAdAccountIds: null,
   }
   const assignedAdAccountId = currentClient?.metaAdAccountId ?? null
+  // enabledAdAccountIds lives only in this browser's storage — null on any new
+  // device. The assigned account comes from the server, so trust it there
+  // instead of silently showing no campaigns until someone re-picks accounts.
   const selectedAdAccountId =
-    assignedAdAccountId && enabledAdAccountIds?.includes(assignedAdAccountId)
+    assignedAdAccountId && (enabledAdAccountIds === null || enabledAdAccountIds.includes(assignedAdAccountId))
       ? assignedAdAccountId
       : null
 
@@ -101,6 +104,7 @@ export function useMetaCampaigns() {
         setCampaigns(cacheKey, {
           data: json.data ?? [],
           accountInsights: json.accountInsights ?? null,
+          previousAccountInsights: json.previousAccountInsights ?? null,
           fetchedAt: Date.now(),
           loading: false,
           error: null,
@@ -120,6 +124,7 @@ export function useMetaCampaigns() {
   return {
     data:            cached?.data           ?? [],
     accountInsights: cached?.accountInsights ?? null,
+    previousAccountInsights: cached?.previousAccountInsights ?? null,
     loading:         cached?.loading         ?? false,
     error:           cached?.error           ?? null,
   }

@@ -3,20 +3,13 @@ import { TrendingUp, TrendingDown, AlertTriangle, Star, ExternalLink, Image, Fil
 import clsx from 'clsx'
 import { formatCurrency, formatRoas, formatPercent } from '@/lib/formatters'
 import { FormatBadge } from '@/components/ui/Badge'
-import { useInsightsStore } from '@/store/insightsStore'
+import { useActionablesStore, openActionablesFor, severityTextClass } from '@/store/actionablesStore'
 import { adManagerUrl } from '@/lib/meta-links'
 
 interface Creative {
   id: string; name: string; format: string; thumbnailUrl: string; previewUrl?: string
   spend: number; roas: number; ctr: number; cpa: number
   frequency: number; trend: number; isTopPerformer: boolean; fatigueRisk: boolean
-}
-
-const INSIGHT_TEXT_CLASS: Record<string, string> = {
-  critical: 'text-red-600 dark:text-red-400',
-  warning: 'text-amber-600 dark:text-amber-400',
-  opportunity: 'text-emerald-600 dark:text-emerald-400',
-  info: 'text-indigo-600 dark:text-indigo-400',
 }
 
 function ThumbnailPlaceholder({ format }: { format: string }) {
@@ -33,7 +26,8 @@ export function CreativeCard({ creative, adAccountId }: { creative: Creative; ad
   const [imgFailed, setImgFailed] = useState(false)
   const trendPositive = creative.trend > 0
   const hasPreview = !!creative.previewUrl
-  const insight = useInsightsStore((s) => s.getForEntity('creative', creative.id))
+  const actionablesPayload = useActionablesStore((s) => s.payload)
+  const action = openActionablesFor(actionablesPayload, { adId: creative.id })[0]
   const metaUrl = adAccountId ? adManagerUrl(adAccountId, creative.id) : null
 
   return (
@@ -143,9 +137,9 @@ export function CreativeCard({ creative, adAccountId }: { creative: Creative; ad
           )}
         </div>
 
-        {insight && (
-          <p className={clsx('text-[10px] leading-snug', INSIGHT_TEXT_CLASS[insight.severity])}>
-            💡 {insight.recommendation}
+        {action && (
+          <p className={clsx('text-[10px] leading-snug font-medium', severityTextClass(action.severity))} title={action.detail}>
+            💡 {action.action}
           </p>
         )}
       </div>

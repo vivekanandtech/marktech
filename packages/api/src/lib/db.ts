@@ -110,6 +110,13 @@ export async function initDb(): Promise<void> {
         generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS actionables (
+        client_id    TEXT PRIMARY KEY,
+        payload      JSONB NOT NULL,
+        generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `)
     console.log('[db] Connected and ready')
   } catch (err) {
     console.error('[db] Failed to initialise:', err)

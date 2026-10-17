@@ -225,26 +225,61 @@ export async function getOrdersByChannel(
   return totals
 }
 
-export async function getMetaSessions(shopDomain: string, accessToken: string, window: DateWindow): Promise<number> {
+export function classifySessionChannel(utmSource: string, utmMedium: string, referrer: string): 'meta' | 'google' | null {
+  const source = utmSource.toLowerCase()
+  const medium = utmMedium.toLowerCase()
+  const ref = referrer.toLowerCase()
+  if (source === 'facebook' || source === 'instagram' || ref === 'instagram' || ref === 'facebook') return 'meta'
+  // Only UTM-tagged paid Google traffic — an untagged google.com referrer is
+  // indistinguishable from organic search, so it isn't counted as paid.
+  if (source === 'google' && ['cpc', 'ppc', 'paid', 'paidsearch', 'pmax'].includes(medium)) return 'google'
+  return null
+}
+
+// Shopify sessions attributable to each paid channel via UTM/referrer.
+export async function getPaidChannelSessions(
+  shopDomain: string, accessToken: string, window: DateWindow
+): Promise<{ meta: number; google: number }> {
   const query =
     `FROM sessions SHOW sessions ` +
-    `GROUP BY utm_source, referrer_name ` +
+    `GROUP BY utm_source, utm_medium, referrer_name ` +
     `SINCE ${window.since} UNTIL ${window.until}`
 
   const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
   const srcIdx = columns.findIndex((c) => c.name === 'utm_source')
+  const medIdx = columns.findIndex((c) => c.name === 'utm_medium')
   const refIdx = columns.findIndex((c) => c.name === 'referrer_name')
   const sessIdx = columns.findIndex((c) => c.name === 'sessions')
 
-  let total = 0
+  const totals = { meta: 0, google: 0 }
   for (const row of rows) {
-    const source = (row[srcIdx] ?? '').toLowerCase()
-    const referrer = (row[refIdx] ?? '').toLowerCase()
-    if (source === 'facebook' || referrer === 'instagram' || referrer === 'facebook') {
-      total += Number(row[sessIdx]) || 0
-    }
+    const channel = classifySessionChannel(row[srcIdx] ?? '', medIdx >= 0 ? row[medIdx] ?? '' : '', row[refIdx] ?? '')
+    if (channel) totals[channel] += Number(row[sessIdx]) || 0
   }
-  return total
+  return totals
+}
+
+export async function getMetaSessions(shopDomain: string, accessToken: string, window: DateWindow): Promise<number> {
+  return (await getPaidChannelSessions(shopDomain, accessToken, window)).meta
+}
+
+// Best-selling products for one billing country — feeds geo-scaling
+// recommendations ("what to put in front of more US shoppers").
+export async function getTopProductsForCountry(
+  shopDomain: string, accessToken: string, window: DateWindow, country: string, limit = 3
+): Promise<{ title: string; netSales: number; orders: number }[]> {
+  const safeCountry = country.replace(/'/g, "\\'")
+  const query =
+    `FROM sales SHOW net_sales, orders GROUP BY product_title ` +
+    `WHERE billing_country = '${safeCountry}' ` +
+    `SINCE ${window.since} UNTIL ${window.until} ORDER BY net_sales DESC LIMIT ${limit}`
+  const { columns, rows } = await runShopifyQL(shopDomain, accessToken, query)
+  const titleIdx = columns.findIndex((c) => c.name === 'product_title')
+  const salesIdx = columns.findIndex((c) => c.name === 'net_sales')
+  const ordersIdx = columns.findIndex((c) => c.name === 'orders')
+  return rows
+    .filter((r) => r[titleIdx])
+    .map((r) => ({ title: String(r[titleIdx]), netSales: Number(r[salesIdx]) || 0, orders: Number(r[ordersIdx]) || 0 }))
 }
 
 // All-channel sessions — unlike getMetaSessions (deliberately filtered to

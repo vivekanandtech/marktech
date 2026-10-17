@@ -9,7 +9,7 @@ import { ProductsPage } from '@/pages/ProductsPage'
 import { MetaAdsPage } from '@/pages/MetaAdsPage'
 import { GoogleAdsPage } from '@/pages/GoogleAdsPage'
 import { ShopifyPage } from '@/pages/ShopifyPage'
-import { InsightsPage } from '@/pages/InsightsPage'
+import { ActionablesPage } from '@/pages/ActionablesPage'
 import { CreativesPage } from '@/pages/CreativesPage'
 import { AlertsPage } from '@/pages/AlertsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -18,6 +18,7 @@ import { AdminClientDetailPage } from '@/pages/admin/AdminClientDetailPage'
 import { useAuthStore } from '@/store/authStore'
 import { useFilterStore } from '@/store/filterStore'
 import { useClientStore } from '@/store/clientStore'
+import { useActionablesStore } from '@/store/actionablesStore'
 import { initTheme } from '@/store/themeStore'
 import { apiFetch } from '@/lib/api'
 
@@ -56,7 +57,7 @@ export function syncMetaStatus(clientId: string) {
 }
 
 export function syncGoogleStatus(clientId: string) {
-  const { setGoogleConnected, setGoogleDisconnected } = useClientStore.getState()
+  const { setGoogleConnected, setGoogleDisconnected, setGoogleSyncError } = useClientStore.getState()
   return apiFetch(`/auth/google/status?clientId=${clientId}`)
     .then((r) => r.ok ? r.json() : null)
     .then((data) => {
@@ -70,6 +71,8 @@ export function syncGoogleStatus(clientId: string) {
         // on a stale connected:false client, so the UI showed the "Connect"
         // button again right after a successful connect.
         setGoogleConnected(clientId, { customerId: data.customerId ?? null, customerName: data.customerName ?? null, customers: data.customers ?? [] })
+      } else if (data.reason === 'token_expired') {
+        setGoogleSyncError(clientId)
       } else {
         setGoogleDisconnected(clientId)
       }
@@ -121,6 +124,7 @@ function ClientSyncProvider() {
     syncMetaStatus(clientId)
     syncGoogleStatus(clientId)
     syncShopifyStatus(clientId)
+    useActionablesStore.getState().fetchLatest(clientId)
   }, [clientId])
 
   return null
@@ -149,7 +153,8 @@ export default function App() {
           <Route path="meta" element={<MetaAdsPage />} />
           <Route path="google" element={<GoogleAdsPage />} />
           <Route path="shopify" element={<ShopifyPage />} />
-          <Route path="insights" element={<InsightsPage />} />
+          <Route path="actionables" element={<ActionablesPage />} />
+          <Route path="insights" element={<Navigate to="/actionables" replace />} />
           <Route path="creatives" element={<CreativesPage />} />
           <Route path="alerts" element={<AlertsPage />} />
           <Route path="settings" element={<SettingsPage />} />

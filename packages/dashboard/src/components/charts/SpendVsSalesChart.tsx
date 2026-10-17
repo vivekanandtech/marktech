@@ -15,6 +15,7 @@ interface SpendVsSalesChartProps {
     netSales?: number
     googleSpend?: number
   }>
+  spendLabel?: string
 }
 
 function useChartColors() {
@@ -45,7 +46,7 @@ function CustomTooltip({ active, payload, label, colors }: any) {
   )
 }
 
-export function SpendVsSalesChart({ data }: SpendVsSalesChartProps) {
+export function SpendVsSalesChart({ data, spendLabel = 'Meta Spend' }: SpendVsSalesChartProps) {
   const c = useChartColors()
   return (
     <ResponsiveContainer width="100%" height={220}>
@@ -56,7 +57,7 @@ export function SpendVsSalesChart({ data }: SpendVsSalesChartProps) {
         <YAxis yAxisId="sales" orientation="right" tick={{ fill: c.axis, fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => formatCurrency(v)} />
         <Tooltip content={<CustomTooltip colors={c} />} />
         <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }} formatter={(v) => <span style={{ color: c.muted }}>{v}</span>} />
-        <Bar yAxisId="spend" dataKey="metaSpend" name="Meta Spend" fill="#6366f1" fillOpacity={0.85} radius={[2, 2, 0, 0]} />
+        <Bar yAxisId="spend" dataKey="metaSpend" name={spendLabel} fill="#6366f1" fillOpacity={0.85} radius={[2, 2, 0, 0]} />
         <Line yAxisId="sales" name="Purchase Value" type="monotone" dataKey="purchaseValue" stroke="#10b981" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
       </ComposedChart>
     </ResponsiveContainer>
