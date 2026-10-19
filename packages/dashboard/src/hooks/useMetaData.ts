@@ -110,6 +110,7 @@ export function useMetaCampaigns() {
           accountInsights: json.accountInsights ?? null,
           previousAccountInsights: json.previousAccountInsights ?? null,
           staleAsOf: json.staleAsOf ?? null,
+          partial: !!json.partial,
           fetchedAt: Date.now(),
           loading: false,
           error: null,
@@ -127,6 +128,7 @@ export function useMetaCampaigns() {
     accountInsights: cached?.accountInsights ?? null,
     previousAccountInsights: cached?.previousAccountInsights ?? null,
     staleAsOf:       cached?.staleAsOf       ?? null,
+    partial:         cached?.partial         ?? false,
     loading:         cached?.loading         ?? false,
     error:           cached?.error           ?? null,
   }
@@ -247,6 +249,7 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
   const [adSets, setAdSets] = useState<any[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [partial, setPartial] = useState(false)
   const [staleAsOf, setStaleAsOf] = useState<string | null>(null)
   const prevKey = useRef<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -268,13 +271,14 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
         const json = await r.json()
         if (json.error) { setError(json.error); setAdSets([]); return }
         setAdSets(json.adSets ?? [])
+        setPartial(!!json.partial)
         setStaleAsOf(json.staleAsOf ?? null)
       })
       .catch((e) => { setError(e.message); setAdSets([]) })
       .finally(() => setLoading(false))
   }, [campaignId, dateRange, clientId, accessToken, attempt])
 
-  return { adSets, loading, error, retry, staleAsOf }
+  return { adSets, loading, error, retry, staleAsOf, partial }
 }
 
 // ─── Ad set detail ────────────────────────────────────────────────────────────
@@ -293,6 +297,7 @@ export function useAdSetAds(adSetId: string | null, dateRange: string) {
   const [ads, setAds] = useState<any[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [partial, setPartial] = useState(false)
   const prevKey = useRef<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const retry = () => { prevKey.current = null; setAttempt((a) => a + 1) }
@@ -313,10 +318,11 @@ export function useAdSetAds(adSetId: string | null, dateRange: string) {
         const json = await r.json()
         if (json.error) { setError(json.error); setAds([]); return }
         setAds(json.ads ?? [])
+        setPartial(!!json.partial)
       })
       .catch((e) => { setError(e.message); setAds([]) })
       .finally(() => setLoading(false))
   }, [adSetId, dateRange, clientId, accessToken, attempt])
 
-  return { ads, loading, error, retry }
+  return { ads, loading, error, retry, partial }
 }

@@ -288,8 +288,13 @@ export async function metaDataRoutes(app: FastifyInstance) {
           ])
           const insightMap = new Map((campaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
           const previousInsightMap = new Map((previousCampaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
+          // Structure refused by Meta: list the campaigns that delivered, named
+          // from their insights rows (status/budget unknown).
+          const partial = campaigns === null
+          const campaignRows = campaigns ?? (campaignInsights ?? []).map((i: any) => ({ id: i.campaign_id, name: i.campaign_name }))
           return {
-            data: campaigns.map((c: any) => ({
+            partial,
+            data: campaignRows.map((c: any) => ({
               ...c,
               insights: insightMap.get(c.id) ?? null,
               previousInsights: previousInsightMap.get(c.id) ?? null,
@@ -319,7 +324,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       try {
         return await cachedMetaFetch(`meta:campaign-detail:v2:${clientId}:${campaignId}:${dateRange}`, CAMPAIGNS_CACHE_TTL_MS,
-          async () => ({ adSets: await getCampaignDetail(campaignId, token, dateRange), source: 'meta_api' }))
+          async () => ({ ...(await getCampaignDetail(campaignId, token, dateRange)), source: 'meta_api' }))
       } catch (err: any) {
         app.log.error({ err: err.message, campaignId }, 'getCampaignDetail failed')
         const f = metaFailure(err, 'Failed to load campaign detail')
@@ -340,7 +345,7 @@ export async function metaDataRoutes(app: FastifyInstance) {
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       try {
         return await cachedMetaFetch(`meta:adset-ads:v2:${clientId}:${adSetId}:${dateRange}`, CAMPAIGNS_CACHE_TTL_MS,
-          async () => ({ ads: await getAdSetAdsDetail(adSetId, token, dateRange), source: 'meta_api' }))
+          async () => ({ ...(await getAdSetAdsDetail(adSetId, token, dateRange)), source: 'meta_api' }))
       } catch (err: any) {
         app.log.error({ err: err.message, adSetId }, 'getAdSetAdsDetail failed')
         const f = metaFailure(err, 'Failed to load ad set ads')

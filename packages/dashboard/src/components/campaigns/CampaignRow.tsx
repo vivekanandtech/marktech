@@ -133,6 +133,13 @@ export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { cam
           </tr>
         ) : (
           <>
+          {!isGoogle && meta.partial && (
+            <tr>
+              <td colSpan={colSpan} className="py-1.5 pl-12 text-[11px] text-amber-600 dark:text-amber-400">
+                Meta is limiting reads on this account — showing ad sets that delivered, with metrics; status and targeting unavailable for now.
+              </td>
+            </tr>
+          )}
           {!isGoogle && meta.staleAsOf && (
             <tr>
               <td colSpan={colSpan} className="py-1.5 pl-12 text-[11px] text-amber-600 dark:text-amber-400">

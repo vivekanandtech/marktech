@@ -57,7 +57,7 @@ function ConnectedView() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  const { data: rawCampaigns, accountInsights, previousAccountInsights, staleAsOf, loading, error } = useMetaCampaigns()
+  const { data: rawCampaigns, accountInsights, previousAccountInsights, staleAsOf, partial, loading, error } = useMetaCampaigns()
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
@@ -172,6 +172,13 @@ function ConnectedView() {
           )}
         </div>
       </div>
+
+      {partial && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <AlertTriangle size={13} className="shrink-0" />
+          Meta is limiting reads on this ad account, so campaigns are listed from their performance data: all metrics are live, but status and budget are unavailable and campaigns without delivery in this window are hidden.
+        </div>
+      )}
 
       {staleAsOf && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">

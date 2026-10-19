@@ -1,5 +1,6 @@
 import { getPool } from '../lib/db'
 import { previousWindow } from '../lib/dateWindows'
+import { cachedMetaFetch, isRateLimitError } from '../lib/response-cache'
 
 const GRAPH = 'https://graph.facebook.com/v20.0'
 const APP_ID = process.env.META_APP_ID!
@@ -301,9 +302,28 @@ async function fetchAllPages(url: string): Promise<any[]> {
   return all
 }
 
-export async function getCampaigns(adAccountId: string, token: string) {
+// Campaign / ad set / ad *structure* (names, status, budget, targeting) has
+// its own small Meta read allowance on the development tier, separate from
+// performance insights — a large account (925 campaigns) exhausts it and Meta
+// then refuses even an id,name listing (#17 "User request limit reached")
+// while insights still load. Structure changes rarely, so it's cached for 30
+// minutes; null means Meta refused and nothing is saved, and callers fall back
+// to the names carried on insights rows rather than showing an error.
+const STRUCTURE_TTL_MS = 30 * 60 * 1000
+
+async function getStructure(key: string, url: string): Promise<any[] | null> {
+  try {
+    const { rows } = await cachedMetaFetch(key, STRUCTURE_TTL_MS, async () => ({ rows: await fetchAllPages(url) }))
+    return rows
+  } catch (err) {
+    if (isRateLimitError(err)) return null
+    throw err
+  }
+}
+
+export async function getCampaigns(adAccountId: string, token: string): Promise<any[] | null> {
   const fields = 'id,name,status,objective,daily_budget,lifetime_budget,effective_status'
-  return fetchAllPages(`${GRAPH}/${adAccountId}/campaigns?fields=${fields}&limit=200&access_token=${token}`)
+  return getStructure(`meta:structure:campaigns:${adAccountId}`, `${GRAPH}/${adAccountId}/campaigns?fields=${fields}&limit=200&access_token=${token}`)
 }
 
 export async function getCampaignInsights(
@@ -386,7 +406,7 @@ export async function getCampaignDetail(
   campaignId: string,
   token: string,
   dateRange = '30D'
-): Promise<any[]> {
+): Promise<{ adSets: any[]; partial: boolean }> {
   // ads.limit(0).summary(true) returns each ad set's ad count inline — no
   // separate call paging through every ad in the campaign just to count them,
   // which on large accounts was a big share of Meta's request allowance.
@@ -399,22 +419,34 @@ export async function getCampaignDetail(
   // development-tier ads_insights budget every time.
   const emptyMap = async () => new Map<string, any>()
   const [adsets, insights, prevInsights] = await Promise.all([
-    // Not soft: an empty list here would tell the user the campaign has no ad sets.
-    fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`),
-    getChildInsightsForWindow(campaignId, token, 'adset', toTimeRange(dateRange)).catch((err) => {
-      console.error(`[getCampaignDetail] adset insights failed for campaign ${campaignId}:`, err.message)
-      return emptyMap()
-    }),
+    getStructure(`meta:structure:adsets:${campaignId}`, `${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`),
+    getChildInsightsForWindow(campaignId, token, 'adset', toTimeRange(dateRange)),
     getChildInsightsForWindow(campaignId, token, 'adset', previousWindow(dateRange)).catch(emptyMap),
   ])
 
-  return adsets.map((as: any) => ({
-    ...as,
-    insights: insights.get(as.id) ?? null,
-    previousInsights: prevInsights.get(as.id) ?? null,
-    ads: [],
-    adCount: as.ads?.summary?.total_count ?? 0,
-  }))
+  // Structure refused: build rows from the insights (name + metrics for every
+  // ad set that delivered); status/targeting/ad count are unknown.
+  if (!adsets) {
+    return {
+      partial: true,
+      adSets: [...insights.values()].map((r: any) => ({
+        id: r.adset_id, name: r.adset_name, campaign_id: r.campaign_id,
+        insights: r, previousInsights: prevInsights.get(r.adset_id) ?? null,
+        ads: [], adCount: null,
+      })),
+    }
+  }
+
+  return {
+    partial: false,
+    adSets: adsets.map((as: any) => ({
+      ...as,
+      insights: insights.get(as.id) ?? null,
+      previousInsights: prevInsights.get(as.id) ?? null,
+      ads: [],
+      adCount: as.ads?.summary?.total_count ?? 0,
+    })),
+  }
 }
 
 // Fetch one ad set's ads + insights (current and previous window), lazily
@@ -427,24 +459,34 @@ export async function getAdSetAdsDetail(
   adSetId: string,
   token: string,
   dateRange = '30D'
-): Promise<any[]> {
+): Promise<{ ads: any[]; partial: boolean }> {
   const adFields = `id,name,status,adset_id,campaign_id,effective_status,creative{${AD_DRILLDOWN_CREATIVE_FIELDS}}`
   const emptyMap = async () => new Map<string, any>()
 
   const [ads, insights, prevInsights] = await Promise.all([
-    fetchAllPages(`${GRAPH}/${adSetId}/ads?fields=${adFields}&limit=200&access_token=${token}`),
-    getChildInsightsForWindow(adSetId, token, 'ad', toTimeRange(dateRange)).catch((err) => {
-      console.error(`[getAdSetAdsDetail] ad insights failed for adset ${adSetId}:`, err.message)
-      return emptyMap()
-    }),
+    getStructure(`meta:structure:ads:${adSetId}`, `${GRAPH}/${adSetId}/ads?fields=${adFields}&limit=200&access_token=${token}`),
+    getChildInsightsForWindow(adSetId, token, 'ad', toTimeRange(dateRange)),
     getChildInsightsForWindow(adSetId, token, 'ad', previousWindow(dateRange)).catch(emptyMap),
   ])
 
-  return ads.map((ad: any) => ({
-    ...ad,
-    insights: insights.get(ad.id) ?? null,
-    previousInsights: prevInsights.get(ad.id) ?? null,
-  }))
+  if (!ads) {
+    return {
+      partial: true,
+      ads: [...insights.values()].map((r: any) => ({
+        id: r.ad_id, name: r.ad_name, adset_id: r.adset_id, campaign_id: r.campaign_id,
+        insights: r, previousInsights: prevInsights.get(r.ad_id) ?? null,
+      })),
+    }
+  }
+
+  return {
+    partial: false,
+    ads: ads.map((ad: any) => ({
+      ...ad,
+      insights: insights.get(ad.id) ?? null,
+      previousInsights: prevInsights.get(ad.id) ?? null,
+    })),
+  }
 }
 
 // Every ad with spend in the window, with its campaign/ad set names and the

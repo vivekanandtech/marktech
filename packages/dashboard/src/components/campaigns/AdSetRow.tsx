@@ -13,7 +13,7 @@ interface AdSet {
   id: string; name: string; audience: string; status: string
   spend: number; roas: number; ctr: number; cpa: number; cpc: number
   impressions: number; clicks: number; conversions: number; frequency: number
-  actionTag: string; trend: MetricTrend | null; ads: any[]; adCount?: number; funnel?: MetaFunnelCounts
+  actionTag: string; trend: MetricTrend | null; ads: any[]; adCount?: number | null; funnel?: MetaFunnelCounts
   results?: number; resultLabel?: string; costPerResult?: number
 }
 
@@ -22,12 +22,12 @@ export function AdSetRow({
 }: { adSet: AdSet; adAccountId?: string | null; showFunnel?: boolean; isGoogle?: boolean; dateRange?: string }) {
   const [expanded, setExpanded] = useState(false)
   const metaUrl = adAccountId ? adsetManagerUrl(adAccountId, adSet.id) : null
-  const adCount = adSet.adCount ?? adSet.ads.length
+  const adCount = adSet.adCount === null ? null : adSet.adCount ?? adSet.ads.length
 
   // Live Meta data arrives with adSet.ads already empty (ads are lazy-loaded
   // per ad set now — see useAdSetAds) even though adCount says ads exist.
   // Mock/demo data nests ads directly, so it never hits this path.
-  const needsLazyFetch = !isGoogle && adSet.ads.length === 0 && adCount > 0
+  const needsLazyFetch = !isGoogle && adSet.ads.length === 0 && adCount !== 0
   const lazy = useAdSetAds(needsLazyFetch && expanded ? adSet.id : null, dateRange)
   const lazyAds = lazy.ads?.map(transformMetaAd).filter((a): a is NonNullable<typeof a> => a !== null) ?? null
   const displayAds = needsLazyFetch ? (lazyAds ?? []) : adSet.ads
@@ -59,7 +59,7 @@ export function AdSetRow({
               <p className="text-[10px] t3 mt-0.5 truncate max-w-[300px]">{adSet.audience}</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <StatusBadge status={adSet.status} />
-                <span className="text-[10px] t3">{adCount} ads</span>
+                <span className="text-[10px] t3">{adCount === null ? 'Ads' : `${adCount} ads`}</span>
               </div>
             </div>
           </div>
@@ -84,7 +84,12 @@ export function AdSetRow({
             </td>
           </tr>
         ) : (
-          displayAds.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} />)
+          <>
+          {needsLazyFetch && lazy.partial && displayAds.length > 0 && (
+            <tr><td colSpan={colSpan} className="py-1 pl-16 text-[11px] text-amber-600 dark:text-amber-400">Meta is limiting reads on this account — showing ad names and metrics; status and thumbnails unavailable for now.</td></tr>
+          )}
+          {displayAds.map((ad) => <AdRow key={ad.id} ad={ad} adAccountId={adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} />)}
+          </>
         )
       )}
     </>

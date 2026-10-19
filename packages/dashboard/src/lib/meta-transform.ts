@@ -207,7 +207,8 @@ export function transformMetaAdSet(as: any) {
       // getCampaignDetail (ads themselves are lazy-loaded per ad set on
       // expand — see AdSetRow) — falls back to ads.length for mock/demo data,
       // which nests ads directly and has no separate count field.
-      adCount: typeof as.adCount === 'number' ? as.adCount : ads.length,
+      // null = unknown (Meta refused the structure read) — still expandable.
+      adCount: as.adCount === null ? null : typeof as.adCount === 'number' ? as.adCount : ads.length,
     }
   } catch {
     return null

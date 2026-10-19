@@ -22,6 +22,8 @@ interface CampaignSlice extends DataSlice<any[]> {
   previousAccountInsights?: any
   // Set when the server served its last good copy because Meta rate-limited.
   staleAsOf?: string | null
+  // Meta refused the campaign structure read; rows were built from insights.
+  partial?: boolean
 }
 
 interface MetaDataStore {
