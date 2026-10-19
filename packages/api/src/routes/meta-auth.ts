@@ -8,7 +8,7 @@ import {
 import { previousWindow } from '../lib/dateWindows'
 import { assertClientAccess, AuthUser } from '../lib/auth-guard'
 import { clientExists } from '../lib/clients'
-import { getCachedResponse, setCachedResponse } from '../lib/response-cache'
+import { cachedMetaFetch, isRateLimitError } from '../lib/response-cache'
 
 const CAMPAIGNS_CACHE_TTL_MS = 5 * 60 * 1000
 
@@ -225,7 +225,7 @@ export async function metaAuthRoutes(app: FastifyInstance) {
 // translate it into something a marketer can act on, with the right status.
 function metaFailure(err: any, fallback: string): { status: number; error: string } {
   const msg: string = err?.message ?? ''
-  if (/request limit|too many calls|rate limit/i.test(msg)) {
+  if (isRateLimitError(err)) {
     return { status: 429, error: 'Meta is rate-limiting this ad account right now — try again in a minute.' }
   }
   return { status: 500, error: msg || fallback }
@@ -269,52 +269,42 @@ export async function metaDataRoutes(app: FastifyInstance) {
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
 
-      // This account can have hundreds of campaigns, each carrying a full set
-      // of insight fields — Meta's API genuinely takes multiple seconds to
-      // return that. Cache the assembled response for a short window so
-      // repeat visits (or the frontend's own re-renders) don't pay that cost
-      // every time; a manual refresh still bypasses this via cache-busting
-      // query params handled below.
-      const cacheKey = `meta:campaigns:${clientId}:${adAccountId}:${dateRange}`
-      const cached = await getCachedResponse<any>(cacheKey, CAMPAIGNS_CACHE_TTL_MS)
-      if (cached) return cached
-
-      const safe = async (label: string, fn: () => Promise<any>): Promise<any> => {
-        try { return await fn() }
-        catch (err: any) {
-          app.log.error({ err: err.message, label }, 'Meta API call failed')
-          return null
-        }
+      // Large accounts take several seconds and a dozen+ Meta calls to load —
+      // cached, de-duplicated, and served from the last good copy if Meta
+      // rate-limits (see cachedMetaFetch).
+      const cacheKey = `meta:campaigns:v2:${clientId}:${adAccountId}:${dateRange}`
+      try {
+        return await cachedMetaFetch(cacheKey, CAMPAIGNS_CACHE_TTL_MS, async () => {
+          const soft = (label: string, p: Promise<any>) =>
+            p.catch((err: any) => { app.log.error({ err: err.message, label }, 'Meta API call failed'); return null })
+          // Current-period calls are required: a failure must not be cached as
+          // a table of zero spend. Previous-period (trend) calls are optional.
+          const [campaigns, campaignInsights, previousCampaignInsights, accountInsights, previousAccountInsights] = await Promise.all([
+            getCampaigns(adAccountId, token),
+            getCampaignInsights(adAccountId, token, dateRange, 'campaign'),
+            soft('previousCampaignInsights', getCampaignInsightsForWindow(adAccountId, token, previousWindow(dateRange), 'campaign')),
+            getAccountInsights(adAccountId, token, dateRange),
+            soft('previousAccountInsights', getAccountInsightsForWindow(adAccountId, token, previousWindow(dateRange))),
+          ])
+          const insightMap = new Map((campaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
+          const previousInsightMap = new Map((previousCampaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
+          return {
+            data: campaigns.map((c: any) => ({
+              ...c,
+              insights: insightMap.get(c.id) ?? null,
+              previousInsights: previousInsightMap.get(c.id) ?? null,
+              adsets: [],
+            })),
+            accountInsights: accountInsights ?? null,
+            previousAccountInsights: previousAccountInsights ?? null,
+            source: 'meta_api',
+          }
+        })
+      } catch (err: any) {
+        app.log.error({ err: err.message, adAccountId }, 'campaigns failed')
+        const f = metaFailure(err, 'Failed to load campaigns')
+        return reply.code(f.status).send({ error: f.error })
       }
-
-      // Fetch campaigns + campaign-level insights (paginated) and account-level
-      // totals in parallel. Ad sets/ads are loaded lazily per campaign on expand.
-      // Previous-period insights are fetched alongside so the frontend can derive
-      // a per-metric trend badge without a second round trip.
-      const [campaigns, campaignInsights, previousCampaignInsights, accountInsights, previousAccountInsights] = await Promise.all([
-        getCampaigns(adAccountId, token),
-        safe('campaignInsights', () => getCampaignInsights(adAccountId, token, dateRange, 'campaign')),
-        safe('previousCampaignInsights', () => getCampaignInsightsForWindow(adAccountId, token, previousWindow(dateRange), 'campaign')),
-        safe('accountInsights',  () => getAccountInsights(adAccountId, token, dateRange)),
-        safe('previousAccountInsights', () => getAccountInsightsForWindow(adAccountId, token, previousWindow(dateRange))),
-      ])
-
-      const insightMap = new Map((campaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
-      const previousInsightMap = new Map((previousCampaignInsights ?? []).map((i: any) => [i.campaign_id, i]))
-
-      const response = {
-        data: campaigns.map((c: any) => ({
-          ...c,
-          insights: insightMap.get(c.id) ?? null,
-          previousInsights: previousInsightMap.get(c.id) ?? null,
-          adsets: [],
-        })),
-        accountInsights: accountInsights ?? null,
-        previousAccountInsights: previousAccountInsights ?? null,
-        source: 'meta_api',
-      }
-      await setCachedResponse(cacheKey, response)
-      return response
     }
   )
 
@@ -327,16 +317,9 @@ export async function metaDataRoutes(app: FastifyInstance) {
       assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
-      // Cached like /campaigns: re-expanding a campaign shouldn't spend more of
-      // the ad account's Meta request allowance (development tier is small).
-      const cacheKey = `meta:campaign-detail:v2:${clientId}:${campaignId}:${dateRange}`
-      const cached = await getCachedResponse<any>(cacheKey, CAMPAIGNS_CACHE_TTL_MS)
-      if (cached) return cached
       try {
-        const adSets = await getCampaignDetail(campaignId, token, dateRange)
-        const response = { adSets, source: 'meta_api' }
-        await setCachedResponse(cacheKey, response)
-        return response
+        return await cachedMetaFetch(`meta:campaign-detail:v2:${clientId}:${campaignId}:${dateRange}`, CAMPAIGNS_CACHE_TTL_MS,
+          async () => ({ adSets: await getCampaignDetail(campaignId, token, dateRange), source: 'meta_api' }))
       } catch (err: any) {
         app.log.error({ err: err.message, campaignId }, 'getCampaignDetail failed')
         const f = metaFailure(err, 'Failed to load campaign detail')
@@ -355,14 +338,9 @@ export async function metaDataRoutes(app: FastifyInstance) {
       assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
-      const cacheKey = `meta:adset-ads:v2:${clientId}:${adSetId}:${dateRange}`
-      const cached = await getCachedResponse<any>(cacheKey, CAMPAIGNS_CACHE_TTL_MS)
-      if (cached) return cached
       try {
-        const ads = await getAdSetAdsDetail(adSetId, token, dateRange)
-        const response = { ads, source: 'meta_api' }
-        await setCachedResponse(cacheKey, response)
-        return response
+        return await cachedMetaFetch(`meta:adset-ads:v2:${clientId}:${adSetId}:${dateRange}`, CAMPAIGNS_CACHE_TTL_MS,
+          async () => ({ ads: await getAdSetAdsDetail(adSetId, token, dateRange), source: 'meta_api' }))
       } catch (err: any) {
         app.log.error({ err: err.message, adSetId }, 'getAdSetAdsDetail failed')
         const f = metaFailure(err, 'Failed to load ad set ads')
@@ -399,12 +377,15 @@ export async function metaDataRoutes(app: FastifyInstance) {
       assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      // Heaviest Meta call in the app (insights + creative batches + images),
+      // and its window is fixed at 30 days — safe to cache for 15 minutes.
       try {
-        const ads = await getTopAds(adAccountId, token, Number(limit))
-        return { data: ads, source: 'meta_api' }
+        return await cachedMetaFetch(`meta:top-ads:v2:${clientId}:${adAccountId}:${limit}`, 15 * 60 * 1000,
+          async () => ({ data: await getTopAds(adAccountId, token, Number(limit)), source: 'meta_api' }))
       } catch (err: any) {
         app.log.error({ err: err.message, adAccountId }, 'getTopAds failed')
-        return reply.code(500).send({ error: err.message ?? 'Failed to fetch creatives' })
+        const f = metaFailure(err, 'Failed to fetch creatives')
+        return reply.code(f.status).send({ error: f.error })
       }
     }
   )
@@ -418,11 +399,12 @@ export async function metaDataRoutes(app: FastifyInstance) {
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
       try {
-        const rows = await getDailyInsights(adAccountId, token, dateRange)
-        return { data: rows, source: 'meta_api' }
+        return await cachedMetaFetch(`meta:daily:v2:${clientId}:${adAccountId}:${dateRange}`, CAMPAIGNS_CACHE_TTL_MS,
+          async () => ({ data: await getDailyInsights(adAccountId, token, dateRange), source: 'meta_api' }))
       } catch (err: any) {
         app.log.error({ err: err.message, adAccountId }, 'getDailyInsights failed')
-        return reply.code(500).send({ error: err.message ?? 'Failed to fetch daily insights' })
+        const f = metaFailure(err, 'Failed to fetch daily insights')
+        return reply.code(f.status).send({ error: f.error })
       }
     }
   )

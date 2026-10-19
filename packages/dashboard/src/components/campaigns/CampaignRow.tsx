@@ -132,7 +132,16 @@ export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { cam
             <td colSpan={colSpan} className="py-3 pl-12 text-xs t3">No ad sets found for this campaign.</td>
           </tr>
         ) : (
-          displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={isGoogle ? null : adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} dateRange={dateRange} />)
+          <>
+          {!isGoogle && meta.staleAsOf && (
+            <tr>
+              <td colSpan={colSpan} className="py-1.5 pl-12 text-[11px] text-amber-600 dark:text-amber-400">
+                Meta is rate-limiting this account — showing ad sets as of {new Date(meta.staleAsOf).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}.
+              </td>
+            </tr>
+          )}
+          {displayAdSets.map((adSet: any) => <AdSetRow key={adSet.id} adSet={adSet} adAccountId={isGoogle ? null : adAccountId} showFunnel={showFunnel} isGoogle={isGoogle} dateRange={dateRange} />)}
+          </>
         )
       )}
     </>

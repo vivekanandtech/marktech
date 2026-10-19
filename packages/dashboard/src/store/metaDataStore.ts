@@ -20,6 +20,8 @@ interface DataSlice<T> {
 interface CampaignSlice extends DataSlice<any[]> {
   accountInsights: any
   previousAccountInsights?: any
+  // Set when the server served its last good copy because Meta rate-limited.
+  staleAsOf?: string | null
 }
 
 interface MetaDataStore {

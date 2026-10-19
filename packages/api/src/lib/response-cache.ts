@@ -31,3 +31,58 @@ export async function setCachedResponse<T>(key: string, payload: T): Promise<voi
     [key, JSON.stringify(payload)]
   ).catch(() => {})  // never let a cache write failure break the real response
 }
+
+// Meta's development-tier throttle ("User request limit reached", #17/#4/#80004…).
+export function isRateLimitError(err: any): boolean {
+  return /request limit|too many calls|rate limit|limit reached/i.test(err?.message ?? '')
+}
+
+const STALE_FALLBACK_MS = 24 * 60 * 60 * 1000
+const inflight = new Map<string, Promise<any>>()
+
+async function getCachedEntry<T>(key: string, maxAgeMs: number): Promise<{ payload: T; computedAt: Date } | null> {
+  const db = getPool()
+  if (!db) return null
+  try {
+    const res = await db.query(`SELECT payload, computed_at FROM metrics_cache WHERE cache_key = $1`, [key])
+    if (!res.rows.length) return null
+    const computedAt = new Date(res.rows[0].computed_at)
+    if (Date.now() - computedAt.getTime() > maxAgeMs) return null
+    return { payload: res.rows[0].payload as T, computedAt }
+  } catch {
+    return null
+  }
+}
+
+// For Meta-backed responses on a small API allowance:
+//  - fresh cache → no Meta call;
+//  - identical concurrent requests share one Meta call instead of N;
+//  - if Meta rate-limits, serve the last good copy (≤24h) tagged with
+//    `staleAsOf` rather than an error — a few-minutes-old table beats none.
+export async function cachedMetaFetch<T extends object>(
+  key: string, ttlMs: number, fn: () => Promise<T>
+): Promise<T & { staleAsOf?: string }> {
+  const fresh = await getCachedEntry<T>(key, ttlMs)
+  if (fresh) return fresh.payload
+
+  const pending = inflight.get(key)
+  if (pending) return pending
+
+  const run = (async () => {
+    try {
+      const data = await fn()
+      await setCachedResponse(key, data)
+      return data
+    } catch (err) {
+      if (isRateLimitError(err)) {
+        const stale = await getCachedEntry<T>(key, STALE_FALLBACK_MS)
+        if (stale) return { ...stale.payload, staleAsOf: stale.computedAt.toISOString() }
+      }
+      throw err
+    } finally {
+      inflight.delete(key)
+    }
+  })()
+  inflight.set(key, run)
+  return run
+}

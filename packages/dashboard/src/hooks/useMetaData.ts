@@ -16,6 +16,12 @@ function metaFetch(path: string, metaToken: string | null, signal?: AbortSignal)
   })
 }
 
+// Several components ask for the same data on one page (Overview, Meta page,
+// Actionables…). One request per key at a time — duplicates used to triple
+// the Meta calls on a small development-tier allowance. Requests are not
+// aborted on unmount: results land in the shared store by key either way.
+const inflight = new Set<string>()
+
 // Call this whenever any /api/* request returns 401 "Unauthorized" (JWT expired).
 // Logs the user out cleanly so ProtectedRoute redirects them to /login.
 function handleExpiredSession() {
@@ -72,19 +78,17 @@ export function useMetaCampaigns() {
   useEffect(() => {
     if (!connected || !selectedAdAccountId || !cacheKey) return
     if (isFresh('campaigns', cacheKey)) return  // cache hit — skip fetch
-
-    const controller = new AbortController()
+    const key = `campaigns:${cacheKey}`
+    if (inflight.has(key)) return
+    inflight.add(key)
     setCampaigns(cacheKey, { loading: true, error: null })
 
     metaFetch(
       `/api/meta/campaigns?clientId=${clientId}&adAccountId=${selectedAdAccountId}&dateRange=${dateRange}`,
       accessToken,
-      controller.signal
     )
       .then(async (r) => {
-        if (controller.signal.aborted) return
         const json = await r.json()
-        if (controller.signal.aborted) return
         // 401 "Meta not connected" → token genuinely gone on the server side.
         // 401 "Unauthorized" → JWT expired (session issue, NOT a Meta disconnection).
         // Only clear Meta state if the server explicitly says the Meta token is missing.
@@ -105,17 +109,14 @@ export function useMetaCampaigns() {
           data: json.data ?? [],
           accountInsights: json.accountInsights ?? null,
           previousAccountInsights: json.previousAccountInsights ?? null,
+          staleAsOf: json.staleAsOf ?? null,
           fetchedAt: Date.now(),
           loading: false,
           error: null,
         })
       })
-      .catch((e) => {
-        if (e.name !== 'AbortError')
-          setCampaigns(cacheKey, { loading: false, error: e.message })
-      })
-
-    return () => controller.abort()
+      .catch((e) => setCampaigns(cacheKey, { loading: false, error: e.message }))
+      .finally(() => inflight.delete(key))
   // cacheKey encodes clientId + adAccountId + dateRange — re-run only when
   // the logical data key changes, not when accessToken silently rotates.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,6 +126,7 @@ export function useMetaCampaigns() {
     data:            cached?.data           ?? [],
     accountInsights: cached?.accountInsights ?? null,
     previousAccountInsights: cached?.previousAccountInsights ?? null,
+    staleAsOf:       cached?.staleAsOf       ?? null,
     loading:         cached?.loading         ?? false,
     error:           cached?.error           ?? null,
   }
@@ -150,17 +152,16 @@ export function useMetaCreatives() {
   useEffect(() => {
     if (!connected || !selectedAdAccountId || !cacheKey) return
     if (isFresh('creatives', cacheKey)) return
-
-    const controller = new AbortController()
+    const key = `creatives:${cacheKey}`
+    if (inflight.has(key)) return
+    inflight.add(key)
     setCreatives(cacheKey, { loading: true, error: null })
 
     metaFetch(
       `/api/meta/top-ads?clientId=${clientId}&adAccountId=${selectedAdAccountId}&limit=25`,
       accessToken,
-      controller.signal
     )
       .then(async (r) => {
-        if (controller.signal.aborted) return
         const json = await r.json()
         if (json.error) { setCreatives(cacheKey, { loading: false, error: json.error }); return }
         setCreatives(cacheKey, {
@@ -170,12 +171,8 @@ export function useMetaCreatives() {
           error: null,
         })
       })
-      .catch((e) => {
-        if (e.name !== 'AbortError')
-          setCreatives(cacheKey, { loading: false, error: e.message })
-      })
-
-    return () => controller.abort()
+      .catch((e) => setCreatives(cacheKey, { loading: false, error: e.message }))
+      .finally(() => inflight.delete(key))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, cacheKey])
 
@@ -205,19 +202,17 @@ export function useMetaDailyInsights() {
   useEffect(() => {
     if (!connected || !selectedAdAccountId || !cacheKey) return
     if (isFresh('dailyInsights', cacheKey)) return
-
-    const controller = new AbortController()
+    const key = `daily:${cacheKey}`
+    if (inflight.has(key)) return
+    inflight.add(key)
     setDailyInsights(cacheKey, { loading: true, error: null })
 
     metaFetch(
       `/api/meta/daily-insights?clientId=${clientId}&adAccountId=${selectedAdAccountId}&dateRange=${dateRange}`,
       accessToken,
-      controller.signal
     )
       .then(async (r) => {
-        if (controller.signal.aborted) return
         const json = await r.json()
-        if (controller.signal.aborted) return
         if (json.error) { setDailyInsights(cacheKey, { loading: false, error: json.error }); return }
         setDailyInsights(cacheKey, {
           data: json.data ?? [],
@@ -226,12 +221,8 @@ export function useMetaDailyInsights() {
           error: null,
         })
       })
-      .catch((e) => {
-        if (e.name !== 'AbortError')
-          setDailyInsights(cacheKey, { loading: false, error: e.message })
-      })
-
-    return () => controller.abort()
+      .catch((e) => setDailyInsights(cacheKey, { loading: false, error: e.message }))
+      .finally(() => inflight.delete(key))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, cacheKey])
 
@@ -256,6 +247,7 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
   const [adSets, setAdSets] = useState<any[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [staleAsOf, setStaleAsOf] = useState<string | null>(null)
   const prevKey = useRef<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const retry = () => { prevKey.current = null; setAttempt((a) => a + 1) }
@@ -276,12 +268,13 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
         const json = await r.json()
         if (json.error) { setError(json.error); setAdSets([]); return }
         setAdSets(json.adSets ?? [])
+        setStaleAsOf(json.staleAsOf ?? null)
       })
       .catch((e) => { setError(e.message); setAdSets([]) })
       .finally(() => setLoading(false))
   }, [campaignId, dateRange, clientId, accessToken, attempt])
 
-  return { adSets, loading, error, retry }
+  return { adSets, loading, error, retry, staleAsOf }
 }
 
 // ─── Ad set detail ────────────────────────────────────────────────────────────
