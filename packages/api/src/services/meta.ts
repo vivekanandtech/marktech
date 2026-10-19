@@ -387,34 +387,18 @@ export async function getCampaignDetail(
   token: string,
   dateRange = '30D'
 ): Promise<any[]> {
-  const adsetFields = 'id,name,campaign_id,status,daily_budget,targeting,effective_status,optimization_goal'
-
-  const safe = async (label: string, fn: () => Promise<any[]>): Promise<any[]> => {
-    try { return await fn() }
-    catch (err: any) {
-      console.error(`[getCampaignDetail] ${label} failed for campaign ${campaignId}:`, err.message)
-      return []
-    }
-  }
+  // ads.limit(0).summary(true) returns each ad set's ad count inline — no
+  // separate call paging through every ad in the campaign just to count them,
+  // which on large accounts was a big share of Meta's request allowance.
+  const adsetFields = 'id,name,campaign_id,status,daily_budget,targeting,effective_status,optimization_goal,ads.limit(0).summary(true)'
 
   const ADSET_PAGE_LIMIT = 200
 
   // Ads are lazy-loaded per ad set on expand (see getAdSetAdsDetail) rather
-  // than fetched eagerly here for the whole campaign. Confirmed live against
-  // a 260-ad campaign: fetching creative+insights for every ad up front trips
-  // Meta's development-tier ads_insights usage budget — a short *rolling*
-  // window, not a per-request complexity cap — every time, regardless of
-  // page size, field weight, or pacing between pages (all three were tried
-  // and all three still failed at the same ~150-200 cumulative item mark).
-  // A typical ad set here has only a handful of ads, far under that
-  // threshold, so scoping the heavy fetch to one ad set at a time sidesteps
-  // the limit entirely instead of trying to out-tune it.
-  // We still need an accurate "N ads" count for the collapsed row, so fetch
-  // a cheap id-only listing (no insights, no creative) to count per ad set —
-  // this lands under Meta's separate, effectively unthrottled ads_management
-  // usage type.
+  // than fetched eagerly here: on a 260-ad campaign that tripped Meta's
+  // development-tier ads_insights budget every time.
   const emptyMap = async () => new Map<string, any>()
-  const [adsets, insights, prevInsights, adsLite] = await Promise.all([
+  const [adsets, insights, prevInsights] = await Promise.all([
     // Not soft: an empty list here would tell the user the campaign has no ad sets.
     fetchAllPages(`${GRAPH}/${campaignId}/adsets?fields=${adsetFields}&limit=${ADSET_PAGE_LIMIT}&access_token=${token}`),
     getChildInsightsForWindow(campaignId, token, 'adset', toTimeRange(dateRange)).catch((err) => {
@@ -422,19 +406,14 @@ export async function getCampaignDetail(
       return emptyMap()
     }),
     getChildInsightsForWindow(campaignId, token, 'adset', previousWindow(dateRange)).catch(emptyMap),
-    safe('adsLite', () => fetchAllPages(`${GRAPH}/${campaignId}/ads?fields=id,adset_id&limit=500&access_token=${token}`)),
   ])
-  const adCountByAdset = new Map<string, number>()
-  for (const ad of adsLite) {
-    adCountByAdset.set(ad.adset_id, (adCountByAdset.get(ad.adset_id) ?? 0) + 1)
-  }
 
   return adsets.map((as: any) => ({
     ...as,
     insights: insights.get(as.id) ?? null,
     previousInsights: prevInsights.get(as.id) ?? null,
     ads: [],
-    adCount: adCountByAdset.get(as.id) ?? 0,
+    adCount: as.ads?.summary?.total_count ?? 0,
   }))
 }
 

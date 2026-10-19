@@ -270,15 +270,6 @@ export async function computeOverviewMetrics(
     dbGetShopifyToken(clientId),
   ])
 
-  // Keyed on the selected Meta ad account too — switching accounts must never
-  // serve the previous account's numbers for the rest of the cache window.
-  // Bump the version whenever the response shape changes.
-  const cacheKey = `overview:v2:${clientId}:${metaToken?.selectedAdAccountId ?? 'none'}:${dateRange}:${country ?? 'all'}`
-  if (!bypassCache) {
-    const cached = await getCached(cacheKey)
-    if (cached) return cached
-  }
-
   const meta = metaToken?.selectedAdAccountId
     ? { accessToken: metaToken.accessToken, adAccountId: metaToken.selectedAdAccountId }
     : null
@@ -290,6 +281,21 @@ export async function computeOverviewMetrics(
   }
 
   const shopify = shopifyToken ? { shopDomain: shopifyToken.shopDomain, accessToken: shopifyToken.accessToken } : null
+
+  // Keyed on the full connection state, not just the client: connecting or
+  // reconnecting Google, switching Meta ad account, or adding Shopify must
+  // never keep serving the previous state's numbers ("Google not connected")
+  // for the rest of the cache window. Bump the version when the shape changes.
+  const connectionState = [
+    meta ? `m:${meta.adAccountId}` : 'm:-',
+    google ? `g:${google.customerId}` : googleToken ? 'g:broken' : 'g:-',
+    shopify ? `s:${shopify.shopDomain}` : 's:-',
+  ].join('|')
+  const cacheKey = `overview:v3:${clientId}:${connectionState}:${dateRange}:${country ?? 'all'}`
+  if (!bypassCache) {
+    const cached = await getCached(cacheKey)
+    if (cached) return cached
+  }
 
   const days = daysForRange(dateRange)
   const [currentResult, previousResult] = await Promise.all([

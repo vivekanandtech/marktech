@@ -20,7 +20,14 @@ export function useOverviewMetrics() {
   const currentClient = clients.find((c) => c.id === clientId)
   const connectedSomewhere = !!(currentClient?.meta.connected || currentClient?.shopify.connected || currentClient?.google?.connected)
 
-  const cacheKey = makeMetricsCacheKey(clientId, dateRange, country ?? 'all')
+  // Connection state is part of the key so connecting Google, switching Meta
+  // account or a Google sync breaking refetches instead of reusing stale data.
+  const connectionState = [
+    currentClient?.metaAdAccountId ?? '-',
+    currentClient?.google?.connected ? `g:${currentClient.google.customerId ?? ''}` : currentClient?.google?.syncError ? 'g:broken' : 'g:-',
+    currentClient?.shopify.connected ? 's' : '-',
+  ].join('|')
+  const cacheKey = makeMetricsCacheKey(clientId, dateRange, `${country ?? 'all'}:${connectionState}`)
   const cached = overview[cacheKey]
 
   useEffect(() => {

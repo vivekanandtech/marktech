@@ -277,7 +277,16 @@ export function OverviewPage() {
   const totalCountrySales = countryBreakdown.reduce((s, c) => s + c.netSales, 0)
   const conversionRate = cur('conversionRate')
 
+  // Every source is always named, with its state — Google included even when
+  // it isn't live, since the page has a Google view.
   const liveSources = [metaConnected && 'Meta', googleStatus === 'live' && 'Google', shopify && 'Shopify'].filter(Boolean).join(' + ')
+  const offlineSources = [
+    !metaConnected && 'Meta not connected',
+    googleStatus === 'sync_error' && 'Google not synced',
+    googleStatus === 'not_connected' && 'Google not connected',
+    ov && !shopify && 'Shopify not connected',
+  ].filter(Boolean).join(' · ')
+  const sourcesLabel = [liveSources && `Live · ${liveSources}`, offlineSources].filter(Boolean).join(' · ')
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -286,7 +295,7 @@ export function OverviewPage() {
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold t1">Overview</h1>
-          <p className="text-sm t3 mt-0.5">{demo ? 'Demo data · connect Meta, Google or Shopify to see live metrics' : `Live · ${liveSources || 'connecting…'}`}</p>
+          <p className="text-sm t3 mt-0.5">{demo ? 'Demo data · connect Meta, Google or Shopify to see live metrics' : sourcesLabel || 'Connecting…'}</p>
         </div>
         <div className="flex items-center gap-2">
           {!demo && (campaignsLoading || creativesLoading || metaChartsLoading) && <Loader2 size={13} className="animate-spin t3" />}

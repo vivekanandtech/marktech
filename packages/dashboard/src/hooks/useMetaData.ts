@@ -257,6 +257,8 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const prevKey = useRef<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const retry = () => { prevKey.current = null; setAttempt((a) => a + 1) }
 
   useEffect(() => {
     if (!campaignId) return
@@ -277,9 +279,9 @@ export function useCampaignDetail(campaignId: string | null, dateRange: string) 
       })
       .catch((e) => { setError(e.message); setAdSets([]) })
       .finally(() => setLoading(false))
-  }, [campaignId, dateRange, clientId, accessToken])
+  }, [campaignId, dateRange, clientId, accessToken, attempt])
 
-  return { adSets, loading, error }
+  return { adSets, loading, error, retry }
 }
 
 // ─── Ad set detail ────────────────────────────────────────────────────────────
@@ -299,6 +301,8 @@ export function useAdSetAds(adSetId: string | null, dateRange: string) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const prevKey = useRef<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const retry = () => { prevKey.current = null; setAttempt((a) => a + 1) }
 
   useEffect(() => {
     if (!adSetId) return
@@ -319,7 +323,7 @@ export function useAdSetAds(adSetId: string | null, dateRange: string) {
       })
       .catch((e) => { setError(e.message); setAds([]) })
       .finally(() => setLoading(false))
-  }, [adSetId, dateRange, clientId, accessToken])
+  }, [adSetId, dateRange, clientId, accessToken, attempt])
 
-  return { ads, loading, error }
+  return { ads, loading, error, retry }
 }

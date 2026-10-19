@@ -80,6 +80,7 @@ export function AdSetRow({
           <tr>
             <td colSpan={colSpan} className="py-2.5 pl-16 text-xs text-red-500">
               Failed to load ads: {lazy.error}
+              <button onClick={(e) => { e.stopPropagation(); lazy.retry() }} className="ml-2 font-semibold underline hover:text-red-600">Retry</button>
             </td>
           </tr>
         ) : (

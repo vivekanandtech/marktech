@@ -122,6 +122,9 @@ export function CampaignRow({ campaign, adAccountId, showFunnel = false }: { cam
           <tr>
             <td colSpan={colSpan} className="py-3 pl-12 text-xs text-red-500">
               Failed to load: {detailError}
+              {!isGoogle && (
+                <button onClick={(e) => { e.stopPropagation(); meta.retry() }} className="ml-2 font-semibold underline hover:text-red-600">Retry</button>
+              )}
             </td>
           </tr>
         ) : displayAdSets.length === 0 ? (

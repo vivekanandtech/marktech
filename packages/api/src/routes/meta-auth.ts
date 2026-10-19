@@ -327,9 +327,16 @@ export async function metaDataRoutes(app: FastifyInstance) {
       assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      // Cached like /campaigns: re-expanding a campaign shouldn't spend more of
+      // the ad account's Meta request allowance (development tier is small).
+      const cacheKey = `meta:campaign-detail:v2:${clientId}:${campaignId}:${dateRange}`
+      const cached = await getCachedResponse<any>(cacheKey, CAMPAIGNS_CACHE_TTL_MS)
+      if (cached) return cached
       try {
         const adSets = await getCampaignDetail(campaignId, token, dateRange)
-        return { adSets, source: 'meta_api' }
+        const response = { adSets, source: 'meta_api' }
+        await setCachedResponse(cacheKey, response)
+        return response
       } catch (err: any) {
         app.log.error({ err: err.message, campaignId }, 'getCampaignDetail failed')
         const f = metaFailure(err, 'Failed to load campaign detail')
@@ -348,9 +355,14 @@ export async function metaDataRoutes(app: FastifyInstance) {
       assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      const cacheKey = `meta:adset-ads:v2:${clientId}:${adSetId}:${dateRange}`
+      const cached = await getCachedResponse<any>(cacheKey, CAMPAIGNS_CACHE_TTL_MS)
+      if (cached) return cached
       try {
         const ads = await getAdSetAdsDetail(adSetId, token, dateRange)
-        return { ads, source: 'meta_api' }
+        const response = { ads, source: 'meta_api' }
+        await setCachedResponse(cacheKey, response)
+        return response
       } catch (err: any) {
         app.log.error({ err: err.message, adSetId }, 'getAdSetAdsDetail failed')
         const f = metaFailure(err, 'Failed to load ad set ads')
