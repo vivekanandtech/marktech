@@ -43,6 +43,7 @@ export interface ActionablesPayload {
   dateRange: string
   window: DateWindow
   clientName: string | null
+  metaAccountId: string | null
   metaAccountName: string | null
   generatedAt: string
   notes: string[]
@@ -420,7 +421,7 @@ const regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
 const countryName = (code: string) => { try { return regionNames.of(code) ?? code } catch { return code } }
 
 async function gatherRuleInput(clientId: string, dateRange: string): Promise<{
-  input: RuleInput; metaAccountName: string | null; notes: string[]
+  input: RuleInput; metaAccountId: string | null; metaAccountName: string | null; notes: string[]
 }> {
   const notes: string[] = []
   const window = currentWindow(dateRange)
@@ -438,7 +439,7 @@ async function gatherRuleInput(clientId: string, dateRange: string): Promise<{
   }
   const adAccountId = metaToken?.selectedAdAccountId ?? null
   const metaAccountName = (metaToken?.adAccounts ?? []).find((a: any) => a.id === adAccountId)?.name ?? null
-  if (!metaToken || !adAccountId) return { input, metaAccountName, notes }
+  if (!metaToken || !adAccountId) return { input, metaAccountId: adAccountId, metaAccountName, notes }
   const token = metaToken.accessToken
 
   const soft = <T,>(label: string, p: Promise<T>, fallback: T) =>
@@ -507,13 +508,13 @@ async function gatherRuleInput(clientId: string, dateRange: string): Promise<{
     }))
   }
 
-  return { input, metaAccountName, notes }
+  return { input, metaAccountId: adAccountId, metaAccountName, notes }
 }
 
 // ─── Orchestration + persistence ─────────────────────────────────────────────
 
 export async function generateActionables(clientId: string, dateRange: string): Promise<ActionablesPayload> {
-  const { input, metaAccountName, notes } = await gatherRuleInput(clientId, dateRange)
+  const { input, metaAccountId, metaAccountName, notes } = await gatherRuleInput(clientId, dateRange)
   const drafts = runRules(input)
 
   // Carry Done/Dismissed forward when the same recommendation reappears.
@@ -524,7 +525,7 @@ export async function generateActionables(clientId: string, dateRange: string): 
 
   const payload: ActionablesPayload = {
     version: 2, items, dateRange, window: currentWindow(dateRange),
-    clientName: await dbGetClientName(clientId), metaAccountName,
+    clientName: await dbGetClientName(clientId), metaAccountId, metaAccountName,
     generatedAt: new Date().toISOString(), notes,
   }
   await dbSaveActionables(clientId, payload)

@@ -45,9 +45,16 @@ export function syncMetaStatus(clientId: string) {
           expiresAt: data.expiresAt,
           accessToken: data.accessToken,
         })
+        // The server's selection wins: Overview metrics and Actionables read it
+        // server-side, so a different account kept in this browser's storage
+        // would silently mix two accounts' numbers across pages.
         if (data.selectedAdAccountId) {
           const client = useClientStore.getState().clients.find((c) => c.id === clientId)
-          if (!client?.metaAdAccountId) assignAdAccount(clientId, data.selectedAdAccountId)
+          if (client?.metaAdAccountId !== data.selectedAdAccountId) assignAdAccount(clientId, data.selectedAdAccountId)
+          const enabled = client?.meta.enabledAdAccountIds
+          if (enabled && !enabled.includes(data.selectedAdAccountId)) {
+            useClientStore.getState().setEnabledAdAccountIds(clientId, [...enabled, data.selectedAdAccountId])
+          }
         }
       } else {
         setMetaDisconnected(clientId)

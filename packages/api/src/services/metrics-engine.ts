@@ -264,19 +264,20 @@ async function setCached(key: string, payload: OverviewMetricsResponse): Promise
 export async function computeOverviewMetrics(
   clientId: string, dateRange: string, country?: string, bypassCache = false
 ): Promise<OverviewMetricsResponse> {
-  // Bump the version whenever the response shape changes so a cached payload
-  // from the old shape is never served to a frontend expecting the new one.
-  const cacheKey = `overview:v2:${clientId}:${dateRange}:${country ?? 'all'}`
-  if (!bypassCache) {
-    const cached = await getCached(cacheKey)
-    if (cached) return cached
-  }
-
   const [metaToken, googleToken, shopifyToken] = await Promise.all([
     dbGetMetaToken(clientId),
     dbGetGoogleToken(clientId),
     dbGetShopifyToken(clientId),
   ])
+
+  // Keyed on the selected Meta ad account too — switching accounts must never
+  // serve the previous account's numbers for the rest of the cache window.
+  // Bump the version whenever the response shape changes.
+  const cacheKey = `overview:v2:${clientId}:${metaToken?.selectedAdAccountId ?? 'none'}:${dateRange}:${country ?? 'all'}`
+  if (!bypassCache) {
+    const cached = await getCached(cacheKey)
+    if (cached) return cached
+  }
 
   const meta = metaToken?.selectedAdAccountId
     ? { accessToken: metaToken.accessToken, adAccountId: metaToken.selectedAdAccountId }

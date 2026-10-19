@@ -33,6 +33,7 @@ export interface ActionablesPayload {
   dateRange: string
   window: { since: string; until: string }
   clientName: string | null
+  metaAccountId?: string | null
   metaAccountName: string | null
   generatedAt: string
   notes: string[]

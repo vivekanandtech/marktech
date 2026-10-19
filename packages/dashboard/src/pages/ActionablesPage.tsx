@@ -45,6 +45,12 @@ export function ActionablesPage() {
   const doneCount = items.filter((i) => i.status === 'done').length
   const dismissedCount = items.filter((i) => i.status === 'dismissed').length
   const staleWindow = payload && payload.dateRange !== dateRange
+  // Generated against a different Meta ad account than the one selected now
+  // (older payloads only recorded the name, so fall back to comparing names).
+  const currentAccount = currentClient?.meta.adAccounts.find((a) => a.id === metaAdAccountId)
+  const staleAccount = !!payload && !!metaAdAccountId && (payload.metaAccountId
+    ? payload.metaAccountId !== metaAdAccountId
+    : !!payload.metaAccountName && !!currentAccount && payload.metaAccountName !== currentAccount.name)
 
   async function handleExport() {
     if (!payload) return
@@ -90,6 +96,19 @@ export function ActionablesPage() {
           {payload.metaAccountName && <> · Meta account: <span className="font-medium t2">{payload.metaAccountName}</span></>}
           {staleWindow && <span className="text-amber-600 dark:text-amber-400"> · Header is set to {dateRange} — refresh to match</span>}
         </p>
+      )}
+
+      {staleAccount && (
+        <div className="flex items-center justify-between gap-3 flex-wrap rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
+          <span className="flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0" />
+            These actionables were built for the Meta account <span className="font-semibold">{payload?.metaAccountName ?? 'previously selected'}</span>, but <span className="font-semibold">{currentAccount?.name ?? 'a different account'}</span> is selected now.
+          </span>
+          <button onClick={() => generate(clientId, dateRange)} disabled={generating}
+            className="flex items-center gap-1.5 font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 rounded-lg px-2.5 py-1.5">
+            {generating ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} Refresh for {currentAccount?.name ?? 'current account'}
+          </button>
+        </div>
       )}
 
       {!connectedSomewhere && (
