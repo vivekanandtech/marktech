@@ -362,9 +362,16 @@ export async function metaDataRoutes(app: FastifyInstance) {
       assertClientAccess(request, clientId)
       const token = await resolveToken(clientId, request.headers['x-meta-token'] as string)
       if (!token) return reply.code(401).send({ error: 'Meta not connected.' })
+      // Large accounts are fetched campaign by campaign (can take a minute) —
+      // cached so re-exporting the same window doesn't repeat it.
       try {
-        const rows = await getAdLevelInsights(adAccountId, token, dateRange)
-        return { data: rows, source: 'meta_api' }
+        return await cachedMetaFetch(`meta:ads-export:v2:${clientId}:${adAccountId}:${dateRange}`, 15 * 60 * 1000,
+          async () => {
+            const { rows, missing } = await getAdLevelInsights(adAccountId, token, dateRange)
+            return { data: rows, missing, source: 'meta_api' }
+          },
+          // An export with gaps isn't cached, so the next try fetches everything again.
+          { shouldCache: (r) => r.missing.length === 0 })
       } catch (err: any) {
         app.log.error({ err: err.message, adAccountId }, 'getAdLevelInsights failed')
         const f = metaFailure(err, 'Failed to export ads')

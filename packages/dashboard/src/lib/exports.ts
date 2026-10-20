@@ -46,7 +46,9 @@ const TAB_STYLE: Record<ActionBucket, { title: string; argb: string; note: strin
   watch:    { title: 'Watch',    argb: 'FFF59E0B', note: 'ROAS 3x–4.5x — hold and monitor' },
 }
 
-export async function exportMetaAdsExcel(rawRows: any[], opts: { accountName: string; dateRange: string }) {
+export interface MissingUnit { id: string; name: string; spend: number; level: 'campaign' | 'adset' }
+
+export async function exportMetaAdsExcel(rawRows: any[], opts: { accountName: string; dateRange: string; missing?: MissingUnit[] }) {
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   wb.creator = 'Marktech'
@@ -66,6 +68,9 @@ export async function exportMetaAdsExcel(rawRows: any[], opts: { accountName: st
     }
   })
 
+  const missing = opts.missing ?? []
+  const missingSpend = missing.reduce((s, m) => s + m.spend, 0)
+
   for (const bucket of ['scale', 'optimise', 'watch'] as ActionBucket[]) {
     const style = TAB_STYLE[bucket]
     const ws = wb.addWorksheet(style.title, { properties: { tabColor: { argb: style.argb } }, views: [{ state: 'frozen', ySplit: 3 }] })
@@ -75,7 +80,8 @@ export async function exportMetaAdsExcel(rawRows: any[], opts: { accountName: st
 
     ws.getCell('A1').value = `${style.title} — ${tabRows.length} ads · ${opts.accountName} · ${opts.dateRange} window`
     ws.getCell('A1').font = { bold: true, size: 13 }
-    ws.getCell('A2').value = `${style.note}.  Spend ₹${Math.round(spend).toLocaleString('en-IN')} · ROAS ${spend > 0 ? (value / spend).toFixed(2) : '0.00'}x`
+    ws.getCell('A2').value = `${style.note}.  Spend ₹${Math.round(spend).toLocaleString('en-IN')} · ROAS ${spend > 0 ? (value / spend).toFixed(2) : '0.00'}x` +
+      (missing.length ? `  ⚠ Incomplete: Meta didn't return ${missing.length} campaign/ad set(s) worth ₹${Math.round(missingSpend).toLocaleString('en-IN')} — see the "Missing data" tab.` : '')
     ws.getCell('A2').font = { italic: true, color: { argb: 'FF64748B' } }
 
     ws.columns = AD_COLUMNS.map((c) => ({ key: c.key, width: c.width }))
@@ -94,6 +100,16 @@ export async function exportMetaAdsExcel(rawRows: any[], opts: { accountName: st
       AD_COLUMNS.forEach((c, i) => { if (c.numFmt) row.getCell(i + 1).numFmt = c.numFmt })
     }
     if (tabRows.length > 0) ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + tabRows.length, column: AD_COLUMNS.length } }
+  }
+
+  if (missing.length) {
+    const ws = wb.addWorksheet('Missing data', { properties: { tabColor: { argb: 'FFEF4444' } } })
+    ws.getCell('A1').value = 'Meta did not return ad-level data for these, so their ads are not in the other tabs. Export again later to retry.'
+    ws.getCell('A1').font = { bold: true }
+    ws.columns = [{ key: 'level', width: 12 }, { key: 'name', width: 60 }, { key: 'spend', width: 18 }]
+    const header = ws.getRow(3)
+    ;['Level', 'Name', 'Spend in window (₹)'].forEach((h, i) => { header.getCell(i + 1).value = h; header.getCell(i + 1).font = { bold: true } })
+    for (const m of missing) ws.addRow({ level: m.level === 'adset' ? 'Ad set' : 'Campaign', name: m.name, spend: Math.round(m.spend) }).getCell(3).numFmt = '#,##0'
   }
 
   const buf = await wb.xlsx.writeBuffer()

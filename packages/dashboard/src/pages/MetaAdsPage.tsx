@@ -74,9 +74,10 @@ function ConnectedView() {
       const r = await apiFetch(`/api/meta/ads-export?clientId=${clientId}&adAccountId=${adAccountId}&dateRange=${dateRange}`)
       const json = await r.json()
       if (json.error) throw new Error(json.error)
-      await exportMetaAdsExcel(json.data ?? [], { accountName: activeAccount?.name ?? currentClient?.name ?? 'Meta', dateRange })
+      await exportMetaAdsExcel(json.data ?? [], { accountName: activeAccount?.name ?? currentClient?.name ?? 'Meta', dateRange, missing: json.missing ?? [] })
+      if (json.missing?.length) setExportError(`Exported, but Meta didn't return ${json.missing.length} campaign/ad set(s) — listed in the file's "Missing data" tab. Export again later to retry.`)
     } catch (e: any) {
-      setExportError(e.message ?? 'Export failed')
+      setExportError(`Export failed: ${e.message ?? 'unknown error'}`)
     } finally {
       setExporting(false)
     }
@@ -158,7 +159,7 @@ function ConnectedView() {
             className="flex items-center gap-1.5 text-xs font-semibold border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 disabled:opacity-50 text-emerald-700 dark:text-emerald-400 px-2.5 py-1.5 rounded-lg transition-colors"
           >
             {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-            {exporting ? 'Exporting…' : 'Export Excel'}
+            {exporting ? 'Exporting… (large accounts take up to a minute)' : 'Export Excel'}
           </button>
           {adAccountId && (
             <a
@@ -189,7 +190,7 @@ function ConnectedView() {
 
       {exportError && (
         <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-500">
-          <AlertTriangle size={13} /> Export failed: {exportError}
+          <AlertTriangle size={13} /> {exportError}
         </div>
       )}
 

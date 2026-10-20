@@ -60,7 +60,7 @@ async function getCachedEntry<T>(key: string, maxAgeMs: number): Promise<{ paylo
 //  - if Meta rate-limits, serve the last good copy (≤24h) tagged with
 //    `staleAsOf` rather than an error — a few-minutes-old table beats none.
 export async function cachedMetaFetch<T extends object>(
-  key: string, ttlMs: number, fn: () => Promise<T>
+  key: string, ttlMs: number, fn: () => Promise<T>, opts: { shouldCache?: (data: T) => boolean } = {}
 ): Promise<T & { staleAsOf?: string }> {
   const fresh = await getCachedEntry<T>(key, ttlMs)
   if (fresh) return fresh.payload
@@ -71,7 +71,7 @@ export async function cachedMetaFetch<T extends object>(
   const run = (async () => {
     try {
       const data = await fn()
-      await setCachedResponse(key, data)
+      if (opts.shouldCache?.(data) ?? true) await setCachedResponse(key, data)
       return data
     } catch (err) {
       if (isRateLimitError(err)) {

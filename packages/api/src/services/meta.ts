@@ -489,23 +489,122 @@ export async function getAdSetAdsDetail(
   }
 }
 
-// Every ad with spend in the window, with its campaign/ad set names and the
-// full insight field set — one paginated account-level call. Backs the Excel
-// export and the Actionables engine, neither of which can afford one call per
-// ad set.
-export async function getAdLevelInsightsForWindow(
-  adAccountId: string, token: string, window: { since: string; until: string }, extraParams: Record<string, string> = {}
-): Promise<any[]> {
+// ─── Large-account fallback for ad-level queries ────────────────────────────
+// Verified live on a 2,000+-ad account: Meta gives up on account-wide ad-level
+// insights over multi-day windows ("Service temporarily unavailable", code 2 /
+// subcode 1504043) — even as an async report — while the same query scoped to
+// one campaign succeeds in a few seconds. So on that error, query campaign by
+// campaign and merge; accounts known to fail skip the doomed attempt for 6h.
+export function isHeavyQueryError(err: any): boolean {
+  return /temporarily unavailable|reduce the amount of data|took too long|timed? ?out/i.test(err?.message ?? '')
+}
+
+const heavyAccounts = new Map<string, number>()
+const HEAVY_MEMORY_MS = 6 * 60 * 60 * 1000
+const isKnownHeavy = (adAccountId: string) => (heavyAccounts.get(adAccountId) ?? 0) > Date.now()
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) { const i = next++; out[i] = await fn(items[i]) }
+  }))
+  return out
+}
+
+const SPEND_FILTER = { field: 'spend', operator: 'GREATER_THAN', value: 0 }
+
+export interface SpendUnit { id: string; name: string; spend: number; level: 'campaign' | 'adset' }
+
+// Campaigns (or one campaign's ad sets) with spend in the window, biggest first.
+async function getSpendingUnits(
+  parentId: string, token: string, window: { since: string; until: string }, level: 'campaign' | 'adset'
+): Promise<SpendUnit[]> {
   const params = new URLSearchParams({
-    fields: LEVEL_FIELDS.ad.join(','),
-    time_range: JSON.stringify(window),
-    level: 'ad',
-    limit: '500',
-    filtering: JSON.stringify([{ field: 'spend', operator: 'GREATER_THAN', value: 0 }]),
-    access_token: token,
-    ...extraParams,
+    fields: `${level}_id,${level}_name,spend`, level, time_range: JSON.stringify(window),
+    filtering: JSON.stringify([SPEND_FILTER]), limit: '500', access_token: token,
   })
-  return fetchAllPages(`${GRAPH}/${adAccountId}/insights?${params}`)
+  const rows = await fetchAllPages(`${GRAPH}/${parentId}/insights?${params}`)
+  return rows
+    .map((r: any) => ({ id: r[`${level}_id`], name: r[`${level}_name`], spend: parseFloat(r.spend) || 0, level }))
+    .sort((a: SpendUnit, b: SpendUnit) => b.spend - a.spend)
+}
+
+async function getSpendingCampaignIds(adAccountId: string, token: string, window: { since: string; until: string }): Promise<string[]> {
+  return (await getSpendingUnits(adAccountId, token, window, 'campaign')).map((u) => u.id)
+}
+
+// Ad-level rows scoped to each campaign (4 at a time). A campaign Meta still
+// refuses (after one retry — Meta flags these as transient) is fetched ad set
+// by ad set, which has held up even when the campaign query didn't. Anything
+// still refused is reported in `missing`, never silently dropped.
+async function getAdInsightsPerCampaign(
+  campaignIds: string[], token: string, window: { since: string; until: string },
+  opts: { filtering?: any[]; units?: SpendUnit[] } = {}
+): Promise<{ rows: any[]; missing: SpendUnit[] }> {
+  const filtering = JSON.stringify(opts.filtering ?? [SPEND_FILTER])
+  const adRows = (parentId: string) => fetchAllPages(`${GRAPH}/${parentId}/insights?${new URLSearchParams({
+    fields: LEVEL_FIELDS.ad.join(','), level: 'ad', time_range: JSON.stringify(window),
+    filtering, limit: '500', access_token: token,
+  })}`)
+  const withRetry = async <T,>(fn: () => Promise<T>): Promise<T> => {
+    try { return await fn() } catch { return fn() }
+  }
+  const unitFor = (id: string): SpendUnit => opts.units?.find((u) => u.id === id) ?? { id, name: id, spend: 0, level: 'campaign' }
+  const missing: SpendUnit[] = []
+
+  const results = await mapLimit(campaignIds, 4, async (campaignId) => {
+    try { return await withRetry(() => adRows(campaignId)) }
+    catch (err: any) {
+      console.warn(`[meta] campaign ${campaignId} refused (${err.message}) — fetching per ad set`)
+      try {
+        const adsets = await withRetry(() => getSpendingUnits(campaignId, token, window, 'adset'))
+        const perAdset = await mapLimit(adsets, 4, async (as) => {
+          try { return await withRetry(() => adRows(as.id)) }
+          catch { missing.push(as); return [] as any[] }
+        })
+        return perAdset.flat()
+      } catch {
+        missing.push(unitFor(campaignId))
+        return [] as any[]
+      }
+    }
+  })
+  return { rows: results.flat(), missing }
+}
+
+async function withCampaignFallback<T>(adAccountId: string, accountWide: () => Promise<T>, perCampaign: () => Promise<T>): Promise<T> {
+  if (isKnownHeavy(adAccountId)) return perCampaign()
+  try {
+    return await accountWide()
+  } catch (err) {
+    if (!isHeavyQueryError(err)) throw err
+    heavyAccounts.set(adAccountId, Date.now() + HEAVY_MEMORY_MS)
+    console.warn(`[meta] ${adAccountId}: account-wide ad query too heavy for Meta — querying per campaign`)
+    return perCampaign()
+  }
+}
+
+// Every ad with spend in the window, with its campaign/ad set names and the
+// full insight field set. Backs the Excel export; `missing` lists any campaign
+// or ad set Meta wouldn't return, so the export can say so.
+export async function getAdLevelInsightsForWindow(
+  adAccountId: string, token: string, window: { since: string; until: string }
+): Promise<{ rows: any[]; missing: SpendUnit[] }> {
+  return withCampaignFallback(
+    adAccountId,
+    async () => ({
+      rows: await fetchAllPages(`${GRAPH}/${adAccountId}/insights?${new URLSearchParams({
+        fields: LEVEL_FIELDS.ad.join(','), time_range: JSON.stringify(window), level: 'ad', limit: '500',
+        filtering: JSON.stringify([SPEND_FILTER]), access_token: token,
+      })}`),
+      missing: [],
+    }),
+    async () => {
+      const units = await getSpendingUnits(adAccountId, token, window, 'campaign')
+      return getAdInsightsPerCampaign(units.map((u) => u.id), token, window, { units })
+    },
+  )
 }
 
 // The top-spending, currently-delivering ad sets or ads in ONE page. Built for
@@ -530,10 +629,19 @@ export async function getTopActiveInsights(
     filtering: JSON.stringify(filtering),
     access_token: token,
   })
-  const res = await fetch(`${GRAPH}/${adAccountId}/insights?${params}`, { signal: AbortSignal.timeout(45_000) })
-  const data = await res.json() as any
-  if (data.error) throw new Error(data.error.message)
-  return data.data ?? []
+  const accountWide = async () => {
+    const res = await fetch(`${GRAPH}/${adAccountId}/insights?${params}`, { signal: AbortSignal.timeout(45_000) })
+    const data = await res.json() as any
+    if (data.error) throw new Error(data.error.message)
+    return (data.data ?? []) as any[]
+  }
+  // Ad level on a large account: fall back to the top-spending campaigns.
+  if (level !== 'ad' || opts.ids) return accountWide()
+  const rows = await withCampaignFallback(adAccountId, accountWide, async () =>
+    (await getAdInsightsPerCampaign((await getSpendingCampaignIds(adAccountId, token, window)).slice(0, 12), token, window, { filtering })).rows)
+  return rows
+    .sort((a: any, b: any) => parseFloat(b.spend) - parseFloat(a.spend))
+    .slice(0, opts.limit ?? 150)
 }
 
 // Account spend/revenue split by delivery country (ISO-2 code in `country`).
@@ -574,7 +682,7 @@ export async function getAdInsightsForCountry(
   return data.data ?? []
 }
 
-export async function getAdLevelInsights(adAccountId: string, token: string, dateRange = '30D'): Promise<any[]> {
+export async function getAdLevelInsights(adAccountId: string, token: string, dateRange = '30D'): Promise<{ rows: any[]; missing: SpendUnit[] }> {
   return getAdLevelInsightsForWindow(adAccountId, token, toTimeRange(dateRange))
 }
 
@@ -626,20 +734,31 @@ export async function getTopAds(adAccountId: string, token: string, limit = 25):
     'purchase_roas', 'ctr', 'cpm', 'frequency', 'actions', 'action_values',
   ].join(',')
 
-  // Step 1 — fetch a modest page of ad insights, sort by spend, take top N.
-  // Keeping the fetch size at 3× the final limit avoids Meta's data-reduction
-  // error while still giving us enough rows to find the top spenders.
-  const insightParams = new URLSearchParams({
-    fields: insightFields,
-    time_range: JSON.stringify({ since, until }),
-    level: 'ad',
-    limit: String(Math.min(safeLimit * 3, 75)),
-    access_token: token,
-  })
-  const insRes = await fetch(`${GRAPH}/${adAccountId}/insights?${insightParams}`)
-  const insData = await insRes.json() as any
-  if (insData.error) throw new Error(insData.error.message)
-  const topInsights = ((insData.data ?? []) as any[])
+  // Step 1 — the top N ads by spend. Meta sorts and filters server-side (the
+  // old code took an arbitrary first page of 75 ads and ranked only those).
+  // Large accounts fall back to their top-spending campaigns, which is where
+  // the account's top-spending ads are.
+  const window = { since, until }
+  const rows = await withCampaignFallback(
+    adAccountId,
+    async () => {
+      const insightParams = new URLSearchParams({
+        fields: insightFields,
+        time_range: JSON.stringify(window),
+        level: 'ad',
+        sort: JSON.stringify(['spend_descending']),
+        filtering: JSON.stringify([SPEND_FILTER]),
+        limit: String(safeLimit),
+        access_token: token,
+      })
+      const insRes = await fetch(`${GRAPH}/${adAccountId}/insights?${insightParams}`)
+      const insData = await insRes.json() as any
+      if (insData.error) throw new Error(insData.error.message)
+      return (insData.data ?? []) as any[]
+    },
+    async () => (await getAdInsightsPerCampaign((await getSpendingCampaignIds(adAccountId, token, window)).slice(0, 12), token, window)).rows,
+  )
+  const topInsights = rows
     .sort((a, b) => parseFloat(b.spend ?? '0') - parseFloat(a.spend ?? '0'))
     .slice(0, safeLimit)
 
