@@ -530,8 +530,43 @@ async function getSpendingUnits(
     .sort((a: SpendUnit, b: SpendUnit) => b.spend - a.spend)
 }
 
+// ≤7-day slices of a window, oldest first.
+export function splitWindow(window: { since: string; until: string }, days = 7): { since: string; until: string }[] {
+  const out: { since: string; until: string }[] = []
+  const end = new Date(`${window.until}T00:00:00Z`)
+  let start = new Date(`${window.since}T00:00:00Z`)
+  while (start <= end) {
+    const sliceEnd = new Date(start)
+    sliceEnd.setUTCDate(sliceEnd.getUTCDate() + days - 1)
+    const until = sliceEnd < end ? sliceEnd : end
+    out.push({ since: start.toISOString().slice(0, 10), until: until.toISOString().slice(0, 10) })
+    start = new Date(until)
+    start.setUTCDate(start.getUTCDate() + 1)
+  }
+  return out
+}
+
+// The account's spending campaigns for a window. If Meta refuses the whole
+// window (seen live on a 30-day query), the same list is built from 7-day
+// slices — which Meta still answers — with spend summed across slices.
+async function getSpendingCampaigns(adAccountId: string, token: string, window: { since: string; until: string }): Promise<SpendUnit[]> {
+  try {
+    return await getSpendingUnits(adAccountId, token, window, 'campaign')
+  } catch (err) {
+    if (!isHeavyQueryError(err)) throw err
+    const byId = new Map<string, SpendUnit>()
+    for (const slice of splitWindow(window)) {
+      for (const u of await getSpendingUnits(adAccountId, token, slice, 'campaign')) {
+        const cur = byId.get(u.id)
+        byId.set(u.id, cur ? { ...cur, spend: cur.spend + u.spend } : u)
+      }
+    }
+    return [...byId.values()].sort((a, b) => b.spend - a.spend)
+  }
+}
+
 async function getSpendingCampaignIds(adAccountId: string, token: string, window: { since: string; until: string }): Promise<string[]> {
-  return (await getSpendingUnits(adAccountId, token, window, 'campaign')).map((u) => u.id)
+  return (await getSpendingCampaigns(adAccountId, token, window)).map((u) => u.id)
 }
 
 // Ad-level rows scoped to each campaign (4 at a time). A campaign Meta still
@@ -601,7 +636,7 @@ export async function getAdLevelInsightsForWindow(
       missing: [],
     }),
     async () => {
-      const units = await getSpendingUnits(adAccountId, token, window, 'campaign')
+      const units = await getSpendingCampaigns(adAccountId, token, window)
       return getAdInsightsPerCampaign(units.map((u) => u.id), token, window, { units })
     },
   )
